@@ -6,9 +6,9 @@ exec(Path(__file__).with_name('native_smoke_test.py').read_text(encoding='utf-8'
 
 root=Path(__file__).resolve().parents[1]
 fixtures=json.loads((root/'work/selection-fixtures.json').read_text(encoding='utf-8'))
-work=root/'work'/('emu041' if serial.startswith('127.') else 'phone041');work.mkdir(exist_ok=True)
+work=root/'work'/('emu043' if serial.startswith('127.') else 'phone043');work.mkdir(exist_ok=True)
 results=[];original=json.dumps(wait_js('window.polyReader?.state'),ensure_ascii=False)
-report={'version':'0.4.1','checks':results,'passed':False}
+report={'version':'0.4.3','checks':results,'passed':False}
 
 def tap(id):
     xy=js("(()=>{const r=document.getElementById("+json.dumps(id)+").getBoundingClientRect();return [Math.round((r.x+r.width/2)*devicePixelRatio),Math.round((r.y+r.height/2)*devicePixelRatio)]})()")
@@ -89,8 +89,7 @@ try:
         box=js("(()=>{if(polyReader.profile.id==='bookwalker')return window._nativeSelection.rect;const r=polyReader.engine.doc.getSelection().getRangeAt(0).getBoundingClientRect();return [r.left,r.top,r.right,r.bottom].map(n=>n*devicePixelRatio)})()")
         colors=image.crop(tuple(round(n) for n in box)).getcolors(image.width*image.height)
         count=lambda rgb:sum(n for n,c in colors if max(abs(a-b) for a,b in zip(rgb,c))<7)
-        # MARS composites the configured selection fill at half opacity.
-        check(reader+' night selection uses a dark blue background',count((20,35,47) if reader=='bookwalker' else (41,70,94))>80)
+        check(reader+' night selection uses a dark blue background',count((41,70,94))>80)
         check(reader+' night selection uses light text',count((243,243,243))>20)
         tap('selection-close')
     report['passed']=True

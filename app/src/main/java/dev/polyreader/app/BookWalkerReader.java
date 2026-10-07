@@ -21,6 +21,7 @@ final class BookWalkerReader {
     private final FrameLayout root;
     private final Handler ui = new Handler(Looper.getMainLooper());
     private Object page, book;
+    private String activeSelectionCfi;
     private Context context;
     private final ArrayList<android.graphics.RectF> chromeBounds=new ArrayList<>();
     private boolean menus, modal, closed;
@@ -119,11 +120,12 @@ final class BookWalkerReader {
         Object c=call(page,"getConfiguration");
         call(c,"a0",false);call(c,"b0",false); // SDK running title and page number.
         call(c,"K",Color.parseColor(p.getString("background")));call(c,"L",Color.parseColor(p.getString("background")));call(c,"O",Color.parseColor(p.getString("foreground")));
-        // PUBLUS exposes selection colors through configuration getters z/A only.
+        // Use text-range markers for selection fill; line fills include unused ruby space.
         JSONObject selection=p.getJSONObject("selection");
         Field selectionBackground=c.getClass().getDeclaredField("c"),selectionForeground=c.getClass().getDeclaredField("d");
         selectionBackground.setAccessible(true);selectionForeground.setAccessible(true);
-        selectionBackground.setInt(c,Color.parseColor(selection.getString("background")));selectionForeground.setInt(c,Color.parseColor(selection.getString("foreground")));
+        selectionBackground.setInt(c,Color.TRANSPARENT);
+        selectionForeground.setInt(c,Color.parseColor(selection.getString("foreground")));
         call(c,"Z","ORyuminPr6N-Reg");call(c,"Y","OGothicMB101Pr6N-Medium");call(c,"c0","ORyuminPr6N-Reg");
         call(c,"N",Math.max(50,Math.min(300,p.optInt("fontSize",160))));
         call(c,"U",(float)p.optDouble("lineHeight",1.75));
@@ -143,6 +145,8 @@ final class BookWalkerReader {
             android.graphics.RectF rect=(android.graphics.RectF)call(page,"getSelectionRect");
             if(range==null||rect==null||rect.isEmpty()){selectionEnded();return;}
             hasSelection=true;int revision=++selectionRevision;
+            String cfi=range.toString().replaceFirst("^#","");
+            if(!cfi.equals(activeSelectionCfi)){activeSelectionCfi=cfi;annotate(annotations);}
             JSONArray bounds=new JSONArray(new float[]{rect.left,rect.top,rect.right,rect.bottom});
             call(page,"p1",range,callback(text->{try{
                 if(revision!=selectionRevision||!hasSelection)return;
@@ -150,7 +154,7 @@ final class BookWalkerReader {
             }catch(Exception e){error(e);}}));
         }catch(Exception e){error(e);}
     }
-    private void selectionEnded(){hasSelection=false;++selectionRevision;selectionBar.setEmpty();emit("selection",JSONObject.NULL);}
+    private void selectionEnded(){if(activeSelectionCfi!=null){activeSelectionCfi=null;if(!closed)try{annotate(annotations);}catch(Exception e){error(e);}}hasSelection=false;++selectionRevision;selectionBar.setEmpty();emit("selection",JSONObject.NULL);}
     void clearSelection()throws Exception{selectionEnded();if(page!=null)call(page,"q0");}
     void annotate(JSONArray notes)throws Exception{
         annotations=notes;ArrayList<Object> marks=new ArrayList<>();Set<String> next=new HashSet<>();
@@ -163,6 +167,11 @@ final class BookWalkerReader {
             next.add(id);
             styles.put(id,n.getString("cfi")+":"+color);
             marks.add(cls("a1.G").getConstructor(String.class,String.class,String.class,int.class).newInstance(id,n.getString("cfi").replaceFirst("^#",""),"normal",Color.parseColor(color)));
+        }
+        if(activeSelectionCfi!=null){
+            String id="__polyreader_selection__",color=preferences.getJSONObject("selection").getString("background");
+            next.add(id);styles.put(id,activeSelectionCfi+":"+color);
+            marks.add(cls("a1.G").getConstructor(String.class,String.class,String.class,int.class).newInstance(id,activeSelectionCfi,"normal",Color.parseColor(color)));
         }
         // The app's legacy text-index helper needs extra account-era initialization.
         // Feed standard EPUB CFI markers to MARS directly using the SDK's own mapper.
