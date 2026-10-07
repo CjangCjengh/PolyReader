@@ -1,0 +1,328 @@
+package dev.polyreader.app;
+
+import android.app.*;
+import android.os.*;
+import android.content.*;
+import android.content.pm.ActivityInfo;
+import android.net.Uri;
+import android.provider.OpenableColumns;
+import android.database.Cursor;
+import android.speech.tts.TextToSpeech;
+import android.util.AtomicFile;
+import android.view.*;
+import android.webkit.*;
+import android.widget.Toast;
+import org.json.*;
+import org.xmlpull.v1.*;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.zip.*;
+
+/** Offline host: all book bytes stay in private storage; only SAF grants are used. */
+public final class MainActivity extends Activity {
+    private static final String ORIGIN = "https://appassets.androidplatform.net";
+    private static final int IMPORT_BOOK = 10, IMPORT_FONT = 11, EXPORT_NOTES = 12;
+    private WebView web;
+    private android.widget.FrameLayout root;
+    private BookWalkerReader nativeReader;
+    private final ExecutorService io = Executors.newSingleThreadExecutor();
+    private final Handler ui = new Handler(Looper.getMainLooper());
+    private File books, fonts;
+    private volatile boolean ready;
+    private volatile boolean volumePaging;
+    private boolean fullscreen;
+    private TextToSpeech tts;
+    private boolean ttsReady;
+    private String exportText = "";
+
+    @Override public void onCreate(Bundle saved) {
+        super.onCreate(saved);
+        books = new File(getFilesDir(), "books"); books.mkdirs();
+        fonts = new File(getFilesDir(), "fonts"); fonts.mkdirs();
+        web = new WebView(this);
+        web.setBackgroundColor(0xfff6f4ee);
+        WebSettings s = web.getSettings();
+        s.setJavaScriptEnabled(true); s.setDomStorageEnabled(false);
+        // Book sizes are selected explicitly in each reader; avoid applying the
+        // device's accessibility text zoom a second time to EPUB layout.
+        s.setTextZoom(100);
+        s.setAllowFileAccess(false); s.setAllowContentAccess(false);
+        s.setAllowFileAccessFromFileURLs(false); s.setAllowUniversalAccessFromFileURLs(false);
+        s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        s.setMediaPlaybackRequiresUserGesture(true); s.setSupportMultipleWindows(false);
+        web.setWebViewClient(new WebViewClient() {
+            @Override public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest r) { return serve(r.getUrl()); }
+            @Override public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
+                // Render only library-generated Blob chapter frames; external navigation stays blocked.
+                return r.isForMainFrame() || !"blob".equals(r.getUrl().getScheme());
+            }
+            @Override public boolean onRenderProcessGone(WebView v, RenderProcessGoneDetail d) {
+                ready = false; v.destroy(); recreate(); return true;
+            }
+        });
+        web.setWebChromeClient(new WebChromeClient() {
+            @Override public boolean onConsoleMessage(ConsoleMessage m) {
+                android.util.Log.d("PolyReader", m.messageLevel() + " " + m.message() + " @" + m.lineNumber()); return true;
+            }
+        });
+        web.addJavascriptInterface(new Bridge(), "Native");
+        if (BuildConfig.DEBUG) WebView.setWebContentsDebuggingEnabled(true);
+        root=new android.widget.FrameLayout(this){@Override public boolean dispatchTouchEvent(MotionEvent e){if(nativeReader!=null&&nativeReader.route(e))return true;return super.dispatchTouchEvent(e);}};
+        root.addView(web,new android.widget.FrameLayout.LayoutParams(-1,-1));
+        root.setOnApplyWindowInsetsListener((v,insets)->{applyCutoutInsets(insets);return insets;});
+        setContentView(root);
+        web.loadUrl(ORIGIN + "/app/index.html");
+    }
+
+    private void applyCutoutInsets(WindowInsets insets) {
+        DisplayCutout cutout=fullscreen&&insets!=null?insets.getDisplayCutout():null;
+        int left=cutout==null?0:cutout.getSafeInsetLeft(),top=cutout==null?0:cutout.getSafeInsetTop();
+        int right=cutout==null?0:cutout.getSafeInsetRight(),bottom=cutout==null?0:cutout.getSafeInsetBottom();
+        int toolbarTop=fullscreen&&insets!=null?Math.max(top,insets.getStableInsetTop()):0;
+        int toolbarBottom=fullscreen&&insets!=null?Math.max(bottom,insets.getStableInsetBottom()):0;
+        if(ready){float density=getResources().getDisplayMetrics().density;
+            web.evaluateJavascript("(()=>{const s=document.documentElement.style;s.setProperty('--cutout-top','"+(top/density)+"px');s.setProperty('--cutout-left','"+(left/density)+"px');s.setProperty('--cutout-right','"+(right/density)+"px');s.setProperty('--cutout-bottom','"+(bottom/density)+"px');s.setProperty('--toolbar-top','"+(toolbarTop/density)+"px');s.setProperty('--toolbar-bottom','"+(toolbarBottom/density)+"px');})()",null);
+        }
+    }
+
+    private WebResourceResponse serve(Uri uri) {
+        try {
+            if (!"https".equals(uri.getScheme()) || !"appassets.androidplatform.net".equals(uri.getHost())) return denied();
+            String p = uri.getPath();
+            InputStream in; String type;
+            if (p.startsWith("/app/") && !p.contains("..")) {
+                in = getAssets().open(p.substring(1)); type = mime(p);
+            } else if (p.matches("/books/[a-f0-9]{64}\\.epub")) {
+                in = new FileInputStream(new File(books, p.substring(7))); type = "application/epub+zip";
+            } else if (p.matches("/index/[a-f0-9]{64}")) {
+                JSONArray entries=new JSONArray();
+                try(ZipFile z=new ZipFile(new File(books,p.substring(7)+".epub"))){
+                    Enumeration<? extends ZipEntry> all=z.entries();
+                    while(all.hasMoreElements()){ZipEntry e=all.nextElement();if(!e.isDirectory()){JSONObject item=new JSONObject();item.put("name",e.getName());item.put("size",e.getSize());entries.put(item);}}
+                }
+                in=new ByteArrayInputStream(entries.toString().getBytes(StandardCharsets.UTF_8));type="application/json";
+            } else if (p.matches("/entry/[a-f0-9]{64}/.+")) {
+                String id=p.substring(7,71),name=p.substring(72);
+                ZipFile z=new ZipFile(new File(books,id+".epub"));ZipEntry e=z.getEntry(name);
+                if(e==null || e.isDirectory()){z.close();return denied();}
+                in=new FilterInputStream(z.getInputStream(e)){@Override public void close() throws IOException{try{super.close();}finally{z.close();}}};type="application/octet-stream";
+            } else if (p.matches("/fonts/[a-f0-9]{64}\\.font")) {
+                in = new FileInputStream(new File(fonts, p.substring(7))); type = "font/otf";
+            } else return denied();
+            Map<String,String> headers = new HashMap<>();
+            headers.put("Access-Control-Allow-Origin", ORIGIN); headers.put("X-Content-Type-Options", "nosniff");
+            headers.put("Cache-Control", "no-store");
+            if (p.endsWith(".html")) headers.put("Content-Security-Policy", "default-src 'none'; script-src " + ORIGIN + "/app/; style-src 'unsafe-inline' " + ORIGIN + " blob:; img-src " + ORIGIN + " blob: data:; font-src " + ORIGIN + " blob: data:; connect-src " + ORIGIN + " blob:; frame-src blob: " + ORIGIN + "; media-src blob:; object-src 'none'; base-uri 'none'");
+            return new WebResourceResponse(type, "UTF-8", 200, "OK", headers, in);
+        } catch (Exception e) { return denied(); }
+    }
+    private WebResourceResponse denied() { return new WebResourceResponse("text/plain", "UTF-8", 403, "Blocked", Collections.emptyMap(), new ByteArrayInputStream(new byte[0])); }
+    private String mime(String p) {
+        if (p.endsWith(".js") || p.endsWith(".mjs")) return "text/javascript";
+        if (p.endsWith(".html")) return "text/html";
+        if (p.endsWith(".css")) return "text/css";
+        if (p.endsWith(".otf")) return "font/otf";
+        if (p.endsWith(".ttf")) return "font/ttf";
+        return "text/plain";
+    }
+    private String read(String name, String fallback) {
+        try (InputStream in = new AtomicFile(new File(getFilesDir(), name)).openRead()) { return new String(readBytes(in), StandardCharsets.UTF_8); }
+        catch (Exception e) { return fallback; }
+    }
+    private void write(String name, String value) throws IOException {
+        AtomicFile f = new AtomicFile(new File(getFilesDir(), name)); FileOutputStream out = null;
+        try { out = f.startWrite(); out.write(value.getBytes(StandardCharsets.UTF_8)); f.finishWrite(out); }
+        catch (IOException e) { if (out != null) f.failWrite(out); throw e; }
+    }
+    private JSONObject bootstrap() throws JSONException {
+        JSONObject o = new JSONObject(); o.put("library", new JSONArray(read("library.json", "[]")));
+        o.put("state", new JSONObject(read("state.json", "{}")));
+        o.put("webview", WebView.getCurrentWebViewPackage() == null ? "unknown" : WebView.getCurrentWebViewPackage().versionName);
+        return o;
+    }
+    void event(String type, Object value) {
+        ui.post(() -> { if (ready) web.evaluateJavascript("window.receiveNative(" + JSONObject.quote(type) + "," + (value == null ? "null" : value.toString()) + ")", null); });
+    }
+    private void fail(Throwable e) { event("error", JSONObject.quote(e.getMessage() == null ? e.toString() : e.getMessage())); }
+    private void choose(boolean font) {
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*");
+        if (!font) { i.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/epub+zip", "text/plain", "application/octet-stream", "application/zip"}); i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true); }
+        startActivityForResult(i, font ? IMPORT_FONT : IMPORT_BOOK);
+    }
+    private String displayName(Uri uri) {
+        try (Cursor c = getContentResolver().query(uri, new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null)) { if (c != null && c.moveToFirst()) return c.getString(0); }
+        catch (Exception ignored) { }
+        return "Book.epub";
+    }
+    private void importUri(Uri uri, boolean font) {
+        importUri(uri,font,null);
+    }
+    private void importUri(Uri uri, boolean font,String encoding) {
+        io.execute(() -> {
+            File tmp = null,converted=null;
+            try {
+                String name = displayName(uri);
+                tmp = File.createTempFile("import-", ".part", getCacheDir());
+                MessageDigest sha = MessageDigest.getInstance("SHA-256"); long size = 0;
+                try (InputStream in = getContentResolver().openInputStream(uri); OutputStream out = new FileOutputStream(tmp)) {
+                    if (in == null) throw new IOException("无法读取所选文件");
+                    byte[] buf = new byte[65536]; int n;
+                    while ((n = in.read(buf)) != -1) { size += n; if (size > (font ? 32L : 256L)*1024*1024) throw new IOException("文件过大：书籍上限 256 MB，字体上限 32 MB"); out.write(buf,0,n); sha.update(buf,0,n); }
+                }
+                StringBuilder hex = new StringBuilder(); for (byte b : sha.digest()) hex.append(String.format(Locale.ROOT,"%02x", b));
+                String id = hex.toString();boolean text=!font&&(name.toLowerCase(Locale.ROOT).endsWith(".txt")||"text/plain".equals(getContentResolver().getType(uri)));
+                if(text){converted=File.createTempFile("text-", ".epub",getCacheDir());TextBook.convert(tmp,converted,name.replaceFirst("(?i)\\.txt$",""),id,encoding);tmp.delete();tmp=converted;}
+                JSONObject item = font ? new JSONObject() : inspectBook(tmp);
+                if(!font)item.put("format",text?"txt":"epub");
+                item.put("id", id); item.put("filename", name); item.put("bytes", size);
+                if (font) {
+                    try (InputStream in = new FileInputStream(tmp)) { byte[] magic = new byte[4]; in.read(magic); String m = new String(magic,StandardCharsets.ISO_8859_1); if (!(m.equals("OTTO") || m.equals("ttcf") || (magic[0]==0 && magic[1]==1 && magic[2]==0 && magic[3]==0))) throw new IOException("请选择有效的 TTF / OTF 字体"); }
+                }
+                File dest = new File(font ? fonts : books, id + (font ? ".font" : ".epub"));
+                if (!dest.exists() && !tmp.renameTo(dest)) throw new IOException("无法保存导入的文件");
+                if (font) event("font", item);
+                else {
+                    JSONArray list = new JSONArray(read("library.json", "[]")); boolean found = false;
+                    for (int i=0;i<list.length();i++) if (list.getJSONObject(i).optString("id").equals(id)) { found=true;list.put(i,item); }
+                    if (!found) list.put(item);
+                    write("library.json", list.toString()); event("imported", item);
+                }
+            } catch (java.nio.charset.CharacterCodingException e) {try{JSONObject q=new JSONObject();q.put("uri",uri.toString());q.put("filename",displayName(uri));event("textEncoding",q);}catch(Exception x){fail(x);}}
+            catch (Throwable e) { fail(e); }
+            finally { if (tmp != null) tmp.delete();if(converted!=null)converted.delete(); }
+        });
+    }
+    private JSONObject inspectBook(File f) throws Exception {
+        try (ZipFile z = new ZipFile(f)) {
+            long total=0; int count=0; Enumeration<? extends ZipEntry> it=z.entries();
+            while(it.hasMoreElements()) { ZipEntry e=it.nextElement(); total+=Math.max(0,e.getSize()); if (++count>30000 || total>768L*1024*1024 || e.getSize()>64L*1024*1024) throw new IOException("EPUB 解压体积超出安全限制"); }
+            String opf=null; XmlPullParser x=xml(z,"META-INF/container.xml");
+            for(int t=x.getEventType();t!=XmlPullParser.END_DOCUMENT;t=x.next()) if(t==XmlPullParser.START_TAG && "rootfile".equals(x.getName())) { opf=x.getAttributeValue(null,"full-path"); break; }
+            if(opf==null) throw new IOException("无效的 EPUB：缺少 package 文档");
+            JSONObject o=new JSONObject(); x=xml(z,opf); boolean metadata=false;
+            Map<String,String> manifest=new HashMap<>();String coverId=null,coverHref=null;
+            for(int t=x.getEventType();t!=XmlPullParser.END_DOCUMENT;t=x.next()) {
+                if(t==XmlPullParser.START_TAG) {
+                    String tag=x.getName(); if(tag.equals("metadata")) metadata=true;
+                    if(tag.equals("meta") && "cover".equals(x.getAttributeValue(null,"name")))coverId=x.getAttributeValue(null,"content");
+                    if(tag.equals("item")){String id=x.getAttributeValue(null,"id"),href=x.getAttributeValue(null,"href"),props=x.getAttributeValue(null,"properties");manifest.put(id,href);if(props!=null && Arrays.asList(props.split("\\s+")).contains("cover-image"))coverHref=href;}
+                    if(metadata && (tag.equals("title") || tag.equals("language") || tag.equals("creator"))) { String text=x.nextText(); if(!o.has(tag)) o.put(tag,text); }
+                    if(tag.equals("spine")) o.put("direction",x.getAttributeValue(null,"page-progression-direction"));
+                } else if(t==XmlPullParser.END_TAG && x.getName().equals("metadata")) metadata=false;
+            }
+            if(coverHref==null)coverHref=manifest.get(coverId);
+            if(coverHref!=null){try{String path=new java.net.URI(null,null,"/"+opf,null).resolve(coverHref).getPath().substring(1);if(z.getEntry(path)!=null)o.put("cover",path);}catch(Exception ignored){}}
+            if (z.getEntry("META-INF/encryption.xml") != null) {
+                x=xml(z,"META-INF/encryption.xml");
+                for(int t=x.getEventType();t!=XmlPullParser.END_DOCUMENT;t=x.next()) if(t==XmlPullParser.START_TAG && "EncryptionMethod".equals(x.getName())) {
+                    String a=x.getAttributeValue(null,"Algorithm"); if(!"http://www.idpf.org/2008/embedding".equals(a) && !"http://ns.adobe.com/pdf/enc#RC".equals(a)) throw new IOException("这本书含加密内容，当前仅支持无 DRM EPUB");
+                }
+            }
+            return o;
+        }
+    }
+    private XmlPullParser xml(ZipFile z,String name) throws Exception {
+        ZipEntry e=z.getEntry(name); if(e==null || e.getSize()>4*1024*1024) throw new IOException("无效的 EPUB 元数据");
+        byte[] bytes; try(InputStream in=z.getInputStream(e)){ bytes=readBytes(in); }
+        XmlPullParserFactory f=XmlPullParserFactory.newInstance(); f.setNamespaceAware(true);
+        XmlPullParser x=f.newPullParser(); x.setFeature(XmlPullParser.FEATURE_PROCESS_DOCDECL,false); x.setInput(new ByteArrayInputStream(bytes),null); return x;
+    }
+    private static byte[] readBytes(InputStream in) throws IOException {
+        ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] buf=new byte[16384];int n;
+        while((n=in.read(buf))!=-1)out.write(buf,0,n);return out.toByteArray();
+    }
+    private final class Bridge {
+        @JavascriptInterface public String init() { try { ready=true; ui.post(() -> handleIntent(getIntent())); return bootstrap().toString(); } catch(Exception e){ return "{}"; } }
+        @JavascriptInterface public void post(String raw) {
+            if(raw==null || raw.length()>4*1024*1024) return;
+            try {
+                JSONObject o=new JSONObject(raw); String action=o.getString("action");
+                if(action.equals("save")) { String state=o.getJSONObject("state").toString(); io.execute(() -> { try { write("state.json",state); } catch(Exception e){fail(e);} }); return; }
+                ui.post(() -> { try { perform(action,o); } catch(Exception e){fail(e);} });
+            } catch(Exception e){ fail(e); }
+        }
+    }
+    private void perform(String action,JSONObject o) throws Exception {
+        switch(action) {
+            case "bwOpen": {
+                if(nativeReader!=null)nativeReader.close();
+                nativeReader=new BookWalkerReader(this,root);web.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+                try{nativeReader.open(o);applyCutoutInsets(root.getRootWindowInsets());}catch(Exception e){nativeReader.close();nativeReader=null;throw e;}
+                break;
+            }
+            case "bwClose": if(nativeReader!=null){nativeReader.close();nativeReader=null;}web.setBackgroundColor(0xfff6f4ee);break;
+            case "bwSettings": if(nativeReader!=null)nativeReader.settings(o.getJSONObject("prefs"),true);break;
+            case "bwGo": if(nativeReader!=null)nativeReader.go(o.getString("target"));break;
+            case "bwTurn": if(nativeReader!=null)nativeReader.turn(o.getInt("direction"));break;
+            case "bwAnnotate": if(nativeReader!=null)nativeReader.annotate(o.getJSONArray("notes"));break;
+            case "bwClearSelection": if(nativeReader!=null)nativeReader.clearSelection();break;
+            case "bwUi": if(nativeReader!=null){nativeReader.setModal(o.optBoolean("modal"));nativeReader.setSelectionBar(o.optJSONArray("selectionRect"));nativeReader.setChrome(o.optBoolean("chrome"),o.optJSONArray("chromeRects"));}break;
+            case "exit": finish();break;
+            case "import": choose(false); break;
+            case "importText": importUri(Uri.parse(o.getString("uri")),false,o.getString("encoding"));break;
+            case "font": choose(true); break;
+            case "window": {
+                volumePaging=o.optBoolean("volume");
+                if(o.optBoolean("awake")) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON); else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                boolean dark=o.optBoolean("dark"),full=o.optBoolean("fullscreen");
+                fullscreen=full;
+                WindowManager.LayoutParams p=getWindow().getAttributes(); p.screenBrightness=(float)o.optDouble("brightness",-1);
+                p.layoutInDisplayCutoutMode=full?(Build.VERSION.SDK_INT>=30?WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS:WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES):WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT;
+                getWindow().setAttributes(p);
+                if(Build.VERSION.SDK_INT>=30)getWindow().setDecorFitsSystemWindows(!full);
+                int orientation=o.optInt("orientation"); setRequestedOrientation(orientation==1?ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT:orientation==2?ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE:ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+                int barColor=dark?0xff262626:0xfffafafa;
+                getWindow().setStatusBarColor(full?android.graphics.Color.TRANSPARENT:barColor);
+                getWindow().setNavigationBarColor(full?android.graphics.Color.TRANSPARENT:barColor);
+                getWindow().setStatusBarContrastEnforced(false);
+                getWindow().setNavigationBarContrastEnforced(false);
+                int flags=(dark?0:View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR) | (full?View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_LAYOUT_STABLE|(o.optBoolean("chrome")?0:View.SYSTEM_UI_FLAG_FULLSCREEN|View.SYSTEM_UI_FLAG_HIDE_NAVIGATION|View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY):0);
+                web.setSystemUiVisibility(flags);
+                getWindow().getDecorView().setSystemUiVisibility(flags);
+                if(Build.VERSION.SDK_INT>=30){
+                    WindowInsetsController controller=getWindow().getInsetsController();
+                    int appearance=WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS|WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+                    if(controller!=null)controller.setSystemBarsAppearance(dark?0:appearance,appearance);
+                }
+                root.requestApplyInsets();
+                break;
+            }
+            case "copy": ((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("PolyReader",o.optString("text"))); break;
+            case "dictionary": {
+                Intent i=new Intent(Intent.ACTION_PROCESS_TEXT).setType("text/plain").putExtra(Intent.EXTRA_PROCESS_TEXT,o.optString("text")).putExtra(Intent.EXTRA_PROCESS_TEXT_READONLY,true);
+                try { startActivity(Intent.createChooser(i,"选择词典或翻译应用")); } catch(ActivityNotFoundException e){ Toast.makeText(this,"请先安装支持文本查询的词典",Toast.LENGTH_SHORT).show(); } break;
+            }
+            case "speak": speak(o.optString("text"),o.optString("language","ja"),(float)o.optDouble("rate",1)); break;
+            case "stopSpeech": if(tts!=null) tts.stop(); break;
+            case "export": exportText=o.optString("text"); startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/json").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE,"PolyReader-notes.json"),EXPORT_NOTES); break;
+            case "delete": {
+                String id=o.optString("id"); if(!id.matches("[a-f0-9]{64}")) return;
+                io.execute(() -> { try { JSONArray old=new JSONArray(read("library.json","[]")),list=new JSONArray(); for(int i=0;i<old.length();i++) if(!old.getJSONObject(i).optString("id").equals(id)) list.put(old.get(i)); write("library.json",list.toString()); new File(books,id+".epub").delete(); event("library",list); } catch(Exception e){fail(e);} }); break;
+            }
+        }
+    }
+    private void speak(String text,String lang,float rate) {
+        if(tts==null) { tts=new TextToSpeech(this,status -> {ttsReady=status==TextToSpeech.SUCCESS; if(ttsReady) speak(text,lang,rate); else fail(new Exception("系统语音引擎不可用"));}); return; }
+        if(!ttsReady) return;
+        Set<android.speech.tts.Voice> voices=tts.getVoices(); android.speech.tts.Voice offline=null;
+        if(voices!=null) for(android.speech.tts.Voice v:voices) if(!v.isNetworkConnectionRequired() && v.getLocale().getLanguage().equals(Locale.forLanguageTag(lang).getLanguage())) {offline=v; break;}
+        if(offline==null) { fail(new Exception("系统未安装该语言的离线语音，请在 Android 文字转语音设置中安装")); return; }
+        tts.setVoice(offline); tts.setSpeechRate(rate); tts.stop();
+        for(int start=0;start<text.length();start+=2500) tts.speak(text.substring(start,Math.min(start+2500,text.length())),TextToSpeech.QUEUE_ADD,null,"poly-"+start);
+    }
+    private void handleIntent(Intent intent) { if(Intent.ACTION_VIEW.equals(intent.getAction()) && intent.getData()!=null){ Uri uri=intent.getData(); intent.setData(null); importUri(uri,false); } }
+    @Override protected void onNewIntent(Intent i){super.onNewIntent(i);setIntent(i);if(ready)handleIntent(i);}
+    @Override protected void onActivityResult(int request,int result,Intent data) {
+        super.onActivityResult(request,result,data); if(result!=RESULT_OK || data==null)return;
+        if(request==EXPORT_NOTES){Uri u=data.getData(); String text=exportText;io.execute(()->{try(OutputStream out=getContentResolver().openOutputStream(u)){out.write(text.getBytes(StandardCharsets.UTF_8));event("notice",JSONObject.quote("笔记已导出"));}catch(Exception e){fail(e);}});return;}
+        if(data.getClipData()!=null) for(int i=0;i<data.getClipData().getItemCount();i++)importUri(data.getClipData().getItemAt(i).getUri(),false);
+        else if(data.getData()!=null)importUri(data.getData(),request==IMPORT_FONT);
+    }
+    @Override public void onBackPressed(){if(ready)web.evaluateJavascript("window.onNativeBack()",null);else super.onBackPressed();}
+    @Override public boolean onKeyDown(int code,KeyEvent event){if(volumePaging && (code==KeyEvent.KEYCODE_VOLUME_DOWN || code==KeyEvent.KEYCODE_VOLUME_UP)){web.evaluateJavascript("window.nativeTurn("+(code==KeyEvent.KEYCODE_VOLUME_DOWN?1:-1)+")",null);return true;}return super.onKeyDown(code,event);}
+    @Override protected void onPause(){super.onPause();if(ready)web.evaluateJavascript("window.flushState?.()",null);if(tts!=null)tts.stop();}
+    @Override protected void onDestroy(){if(nativeReader!=null)nativeReader.close();if(tts!=null)tts.shutdown();io.shutdown();if(web!=null)web.destroy();super.onDestroy();}
+}

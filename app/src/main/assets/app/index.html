@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><title>PolyReader</title><link rel="stylesheet" href="ui.css"></head>
+<body>
+<main id="shelf">
+  <header class="shelf-header"><h1>书架</h1><div><button id="import-button" class="icon" aria-label="导入书籍">＋</button><button id="about-button" class="icon" aria-label="关于">⋯</button></div></header>
+  <div class="library-heading"><input id="filter" type="search" placeholder="搜索书名、作者" aria-label="查找书籍"></div>
+  <section id="books" class="books"></section>
+  <section id="empty" class="empty"></section>
+</main>
+<section id="reading" hidden>
+  <div id="reader-stage"></div>
+  <header id="reader-top" class="reader-top">
+    <button id="home" class="icon" aria-label="返回书架"><span class="bw-only"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></span><span class="ridi-only"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5-7 7 7 7M8 12h13"/></svg></span></button>
+    <div class="book-heading"><b id="reading-title"></b><small id="mode-caption" hidden></small></div>
+    <button id="search-button" class="icon" aria-label="全文搜索"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/></svg></button><button id="add-bookmark" class="icon" aria-label="添加书签"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-6-4-6 4Z"/></svg></button><button id="reader-more" class="icon" aria-label="更多"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg></button>
+  </header>
+  <footer id="reader-bottom" class="reader-bottom">
+    <div class="progress-row"><input id="progress" type="range" min="0" max="1000" value="0" aria-label="阅读进度"><button id="jump-back" class="icon" aria-label="返回跳转前的位置"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 7-5 4 5 4M3 11h11a6 6 0 0 1 0 12" transform="translate(0 -3)"/></svg></button></div>
+    <output id="reading-progress"></output>
+    <nav><button id="toc-button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h14M7 12h14M7 19h14M2 5h1M2 12h1M2 19h1"/></svg><span>目录</span></button><button id="notes-button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14v14l-4 4H5ZM15 21v-5h4M8 8h8M8 12h6"/></svg><span>读书笔记</span></button><button id="style-button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5V3h16v2M12 3v18M8 21h8"/></svg><span>阅读样式</span></button><button id="settings-button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 3 1-2h4l1 2 3 2 2-.2 2 4-1.2 2v3l1.2 2-2 4-2-.2-3 2-1 2h-4l-1-2-3-2-2 .2-2-4 1.2-2v-3L2 9l2-4 2 .2Z" transform="translate(1 1) scale(.9)"/><circle cx="12" cy="12" r="3"/></svg><span>阅读设置</span></button></nav>
+  </footer>
+</section>
+<div id="scrim" hidden></div><section id="panel" role="dialog" aria-modal="true" hidden><header><h2 id="panel-title"></h2><button id="panel-close" class="icon" aria-label="关闭">×</button></header><div id="panel-body"></div></section>
+<div id="selection-bar" hidden><button id="selection-copy">复制</button><button id="selection-highlight">高亮 / 笔记</button><button id="selection-dict">词典</button><button id="selection-speak">朗读</button></div>
+<div id="toast" role="status" hidden></div><div id="loading" hidden><span class="spinner"></span><span id="loading-text">正在排版…</span></div>
+<script type="module" src="app.js"></script>
+</body></html>

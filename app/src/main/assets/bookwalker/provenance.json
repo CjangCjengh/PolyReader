@@ -1,0 +1,16 @@
+{
+  "source": "BOOK+WALKER+-+Manga+&+Novels_7.9.2_APKPure.xapk",
+  "source_sha256": "a9262b2634903283900dda0207dce4782b04c31a3368a6767b55782d01babbb3",
+  "version": "7.9.2",
+  "abi": "arm64-v8a",
+  "font_sources": [
+    {
+      "url": "https://member.bookwalker.jp/custom/fonts/android/libnfserif.so",
+      "sha256": "83f0acb338866e0c6421d51e38d37833d58221d7e61d64e3e0ce301c82a521d2"
+    },
+    {
+      "url": "https://member.bookwalker.jp/custom/fonts/android/libnfsans.so",
+      "sha256": "ae0ce562c86fb0eba70ef33167a232af044b3551461a6bcbd207836a551bad1f"
+    }
+  ]
+}

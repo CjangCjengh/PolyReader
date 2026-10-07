@@ -1,0 +1,16 @@
+.gradle/
+**/build/
+local.properties
+work/
+*.epub
+*.xapk
+*.apk
+!app/src/main/assets/bookwalker/engine.apk
+!app/src/main/assets/bookwalker/engine-density.apk
+*.jks
+node_modules/
+native-probe/
+__pycache__/
+*.pyc
+.env
+.env.*

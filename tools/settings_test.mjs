@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+const m=await import(new URL('../app/src/main/assets/app/profiles.js',import.meta.url));
+const notes=[{id:'n1',note:'keep me',cfi:'epubcfi(/6/4!/4/2:0)'}];
+const legacy={visualPresetVersion:3,profiles:{japanese:{fontSize:26,theme:'day',volume:false,margin:22},korean:{fontSize:25,theme:'night',lineHeight:1.7}},fonts:{korean:{id:'font1'}},books:{a:{mode:'japanese',notes,locations:{japanese:{cfi:'abc'},korean:{cfi:'def'}},location:{cfi:'abc'}}}};
+m.migrateState(legacy);
+assert.equal(legacy.profiles.bookwalker.fontSize,160);assert.equal(legacy.profiles.ridi.fontSize,8);
+assert.equal(legacy.profiles.bookwalker.theme,'amber');assert.equal(legacy.profiles.ridi.theme,'night');
+assert.equal(legacy.profiles.bookwalker.volume,false);assert.equal(legacy.profiles.bookwalker.margin,22);assert.equal(legacy.profiles.ridi.lineHeight,1.7);
+assert.equal(legacy.books.a.mode,'bookwalker');assert.deepEqual(legacy.books.a.locations,{bookwalker:{cfi:'abc'},ridi:{cfi:'def'}});assert.deepEqual(legacy.books.a.notes,notes);assert.deepEqual(legacy.fonts.ridi,{id:'font1'});
+const again=JSON.stringify(legacy);m.migrateState(legacy);assert.equal(JSON.stringify(legacy),again);
+const oldNight=m.migrateState({profiles:{japanese:{fontSize:26,theme:'night'}}});assert.equal(oldNight.profiles.bookwalker.theme,'nightLight');
+const previous=m.migrateState({readerSettingsVersion:1,profiles:{ridi:{topMargin:79,bottomMargin:28,fontSize:8}}});assert.equal(previous.profiles.ridi.topMargin,78);assert.equal(previous.profiles.ridi.bottomMargin,27);
+const customMargins=m.migrateState({readerSettingsVersion:1,profiles:{ridi:{topMargin:65,bottomMargin:28}}});assert.equal(customMargins.profiles.ridi.topMargin,65);assert.equal(customMargins.profiles.ridi.bottomMargin,28);
+for(const [theme] of m.themeOptions)assert.deepEqual(m.palette({preset:'bookwalker',theme}),m.palette({preset:'ridi',theme}));
+assert.equal(m.ridiFontSize(8,412),25);assert.equal(m.ridiFontSize(8,600),30);assert.equal(m.ridiFontSize(8,720),32);
+globalThis.window={screen:{width:412,height:915}};assert.equal(m.layoutPrefs(m.profiles[0].defaults).fontSize,160);assert.equal(m.layoutPrefs(m.profiles[1].defaults).fontSize,25);
+window.screen={width:915,height:412};assert.equal(m.layoutPrefs(m.profiles[1].defaults).fontSize,25);
+console.log('PASS reader IDs, unit migration, custom settings, notes/positions/fonts preservation, idempotence, all shared palettes, RIDI phone/tablet sizes and orientation stability');
