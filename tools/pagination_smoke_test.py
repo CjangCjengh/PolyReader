@@ -6,7 +6,7 @@ checks=js(r"""(async()=>{
  const {RidiEngine}=await import('./engines.js'),{profiles,layoutPrefs}=await import('./profiles.js'),CFI=await import('./vendor/foliate/epubcfi.js');
  const host=document.createElement('div');host.style.cssText='position:fixed;inset:0 auto auto 0;width:340px;height:650px;z-index:99';document.body.append(host);
  const image='data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400"><rect width="300" height="400" fill="teal"/></svg>');
- const bodies=[Array.from({length:3},(_,i)=>`<figure id="image${i}"><img src="${image}" alt="${i}"/></figure>`).join(''),'<nav><ol>'+Array.from({length:14},(_,i)=>`<li><a href="#item${i}">Chapter ${i+1} 가나다 라마바</a></li>`).join('')+'</ol></nav>','<p>Following chapter</p>'];
+ const bodies=[Array.from({length:3},(_,i)=>`<figure id="image${i}"><img src="${image}" alt="${i}"/></figure>`).join(''),'<nav><ol>'+Array.from({length:14},(_,i)=>`<li><a href="#item${i}">Chapter ${i+1} 가나다 라마바</a></li>`).join('')+'</ol></nav>','<p>Following chapter</p>','<p>'+('これは本を開くテストです。'.repeat(180))+'</p>'];
  const urls=bodies.map(body=>URL.createObjectURL(new Blob([`<html xmlns="http://www.w3.org/1999/xhtml"><head><style>figure{margin:0;break-before:column;break-after:column}img{display:block;width:100%;height:auto}li{margin:.8em 0}</style></head><body>${body}</body></html>`],{type:'application/xhtml+xml'})));
  const book={sections:urls.map((url,i)=>({id:'section'+i,cfi:CFI.fake.fromIndex(i),size:1000,load:async()=>url})),resolveCFI(cfi){const parts=CFI.parse(cfi),top=(parts.parent??parts).shift();return {index:CFI.fake.toIndex(top),anchor:doc=>CFI.toRange(doc,parts)}}};
  const e=new RidiEngine(),checks=[],check=(name,ok)=>{if(!ok)throw Error(name);checks.push(name)};
@@ -28,6 +28,12 @@ checks=js(r"""(async()=>{
    await e.turn(-1);check('Reverse turn restores last navigation page at margin '+margin,e.index===1&&e.location.page===e.pages);
   }
   await e.moveAnchor(0);await e.turn(-1);check('Reverse chapter boundary restores last image',e.index===0&&e.location.page===e.pages);
+  await e.settings(p);await e.go(3);
+  for(let i=0;i<3;i++){
+   await e.turn(1);const loc={...e.location};await e.go(2);await e.go(loc.cfi);
+   check('Text CFI at column boundary restores page '+loc.page,e.index===3&&e.location.page===loc.page);
+  }
+  await e.go(0);
   const chapter=e.index;await e.settings({...p,flow:'scrolled'});
   check('Scroll mode clears horizontal page extent',e.doc.documentElement.scrollWidth<=host.clientWidth+1);
   await e.moveAnchor(1);await e.turn(1);check('Scroll-mode end advances to next chapter',e.index===chapter+1);

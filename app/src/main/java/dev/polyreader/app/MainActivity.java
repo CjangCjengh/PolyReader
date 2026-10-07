@@ -183,12 +183,12 @@ public final class MainActivity extends Activity {
     private String displayName(Uri uri) {
         try (Cursor c = getContentResolver().query(uri, new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null)) { if (c != null && c.moveToFirst()) return c.getString(0); }
         catch (Exception ignored) { }
-        return "Book.epub";
+        return "file".equals(uri.getScheme()) && uri.getLastPathSegment()!=null ? uri.getLastPathSegment() : "Book.epub";
     }
     private void importUri(Uri uri, boolean font) {
-        importUri(uri,font,null);
+        importUri(uri,font,null,false);
     }
-    private void importUri(Uri uri, boolean font,String encoding) {
+    private void importUri(Uri uri, boolean font,String encoding,boolean open) {
         io.execute(() -> {
             File tmp = null,converted=null;
             try {
@@ -216,9 +216,9 @@ public final class MainActivity extends Activity {
                     JSONArray list = new JSONArray(read("library.json", "[]")); boolean found = false;
                     for (int i=0;i<list.length();i++) if (list.getJSONObject(i).optString("id").equals(id)) { found=true;list.put(i,item); }
                     if (!found) list.put(item);
-                    write("library.json", list.toString()); event("imported", item);
+                    write("library.json", list.toString()); event(open ? "openBook" : "imported", item);
                 }
-            } catch (java.nio.charset.CharacterCodingException e) {try{JSONObject q=new JSONObject();q.put("uri",uri.toString());q.put("filename",displayName(uri));event("textEncoding",q);}catch(Exception x){fail(x);}}
+            } catch (java.nio.charset.CharacterCodingException e) {try{JSONObject q=new JSONObject();q.put("uri",uri.toString());q.put("filename",displayName(uri));q.put("open",open);event("textEncoding",q);}catch(Exception x){fail(x);}}
             catch (Throwable e) { fail(e); }
             finally { if (tmp != null) tmp.delete();if(converted!=null)converted.delete(); }
         });
@@ -291,7 +291,7 @@ public final class MainActivity extends Activity {
             case "bwUi": if(nativeReader!=null){nativeReader.setModal(o.optBoolean("modal"));nativeReader.setSelectionBar(o.optJSONArray("selectionRect"));nativeReader.setChrome(o.optBoolean("chrome"),o.optJSONArray("chromeRects"));}break;
             case "exit": finish();break;
             case "import": choose(false); break;
-            case "importText": importUri(Uri.parse(o.getString("uri")),false,o.getString("encoding"));break;
+            case "importText": importUri(Uri.parse(o.getString("uri")),false,o.getString("encoding"),o.optBoolean("open"));break;
             case "font": choose(true); break;
             case "window": {
                 reading=o.optBoolean("reader");
@@ -328,7 +328,7 @@ public final class MainActivity extends Activity {
             }
         }
     }
-    private void handleIntent(Intent intent) { if(Intent.ACTION_VIEW.equals(intent.getAction()) && intent.getData()!=null){ Uri uri=intent.getData(); intent.setData(null); importUri(uri,false); } }
+    private void handleIntent(Intent intent) { if(Intent.ACTION_VIEW.equals(intent.getAction()) && intent.getData()!=null){ Uri uri=intent.getData(); intent.setData(null); importUri(uri,false,null,true); } }
     @Override protected void onNewIntent(Intent i){super.onNewIntent(i);setIntent(i);if(ready)handleIntent(i);}
     @Override protected void onActivityResult(int request,int result,Intent data) {
         super.onActivityResult(request,result,data); if(result!=RESULT_OK || data==null)return;

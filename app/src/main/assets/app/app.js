@@ -8,7 +8,7 @@ const node=(tag,text,cls)=>{const e=document.createElement(tag);if(text!=null)e.
 const send=(action,data={})=>window.Native?.post(JSON.stringify({action,...data}));
 let state,library=[],book,active,profile,engine,selection,loading=false,searchToken=0,fontForProfile=null;
 let toastTimer,saveTimer,settingsTimer,settingsView='reading';
-let handleDrag,selectionDragging=false;
+let handleDrag,selectionDragging=false,pendingOpen;
 const blend=(a,b,t)=>'#'+[1,3,5].map(i=>Math.round(parseInt(a.slice(i,i+2),16)*(1-t)+parseInt(b.slice(i,i+2),16)*t).toString(16).padStart(2,'0')).join('');
 const prefs=()=>state.profiles[profile.id];
 const bookState=()=>state.books[active.id]??=( {notes:[],locations:{}} );
@@ -16,7 +16,13 @@ const flush=()=>{clearTimeout(saveTimer);send('save',{state});};
 const save=()=>{clearTimeout(saveTimer);saveTimer=setTimeout(flush,180);};
 const toast=text=>{$('toast').textContent=text;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,4200);};
 const error=e=>{console.error(e);busy(false);toast(e.message||String(e));};
-function busy(on,text='正在排版…'){loading=on;$('loading').hidden=!on;$('loading-text').textContent=text;}
+function busy(on,text='正在排版…'){loading=on;$('loading').hidden=!on;$('loading-text').textContent=text;if(!on)setTimeout(openRequestedBook,0);}
+function openRequestedBook(){
+ if(!pendingOpen||loading)return;
+ const item=pendingOpen;pendingOpen=null;
+ const mode=profiles.find(p=>p.id===state.books[item.id]?.mode)||profiles.find(p=>p.lang===item.language?.toLowerCase().split(/[-_]/)[0])||profiles.find(p=>p.id==='ridi')||profiles[0];
+ openBook(item,mode.id);
+}
 function setChrome(visible){if(visible)clearSelection();document.body.classList.toggle('chrome-hidden',!visible);if(active){applyWindow();syncNativeUI();}}
 function showPanel(title){clearSelection();if(active)setChrome(false);$('panel-title').textContent=title;$('panel-body').replaceChildren();$('scrim').hidden=false;$('panel').hidden=false;return $('panel-body');}
 function closePanel(){searchToken++;$('panel').hidden=true;$('scrim').hidden=true;}
@@ -207,7 +213,7 @@ async function runSearch(query,status,list){
  }if(token===searchToken)status.textContent=count?`${count}${count===150?'（已达显示上限）':''} 个结果`:'没有找到匹配文字';}catch(e){status.textContent='搜索失败：'+e.message;}
 }
 function more(){const p=showPanel('更多');actionButton(p,'选择阅读器',()=>chooseMode(active));actionButton(p,'跳回书首',()=>{closePanel();engine.go(0).catch(error)});actionButton(p,'关于 PolyReader',about);}
-function about(){const p=showPanel('关于 PolyReader');p.append(node('h3','PolyReader'),node('div','0.4.8','about-version'),node('p','本地 EPUB / TXT 阅读器'),node('p','阅读器：BOOK☆WALKER、RIDI。每个阅读器独立保存字号、主题和操作设置。'));actionButton(p,'组件与许可',async()=>{const q=showPanel('组件与许可');q.append(node('p','BOOK☆WALKER 7.9.2：PUBLUS/MARS 排版内核，字体为リュウミン和ゴシックMB101。相关组件保留原版权。'),node('p','RIDI Reader.js 1.0.61、Foliate JS：MIT；RIDIBatang：SIL OFL 1.1。'));for(const f of ['vendor/ridi/LICENSE','vendor/foliate/LICENSE','fonts/RIDIBatang-LICENSE.txt']){const t=await(await fetch(f)).text();const pre=node('pre',t);pre.style.cssText='white-space:pre-wrap;font:11px/1.6 monospace';q.append(pre)}q.append(node('p','zip.js：BSD-3-Clause；fflate：MIT。相关版权声明保留在对应源文件中。'));});}
+function about(){const p=showPanel('关于 PolyReader');p.append(node('h3','PolyReader'),node('div','0.4.9','about-version'),node('p','本地 EPUB / TXT 阅读器'),node('p','阅读器：BOOK☆WALKER、RIDI。每个阅读器独立保存字号、主题和操作设置。'));actionButton(p,'组件与许可',async()=>{const q=showPanel('组件与许可');q.append(node('p','BOOK☆WALKER 7.9.2：PUBLUS/MARS 排版内核，字体为リュウミン和ゴシックMB101。相关组件保留原版权。'),node('p','RIDI Reader.js 1.0.61、Foliate JS：MIT；RIDIBatang：SIL OFL 1.1。'));for(const f of ['vendor/ridi/LICENSE','vendor/foliate/LICENSE','fonts/RIDIBatang-LICENSE.txt']){const t=await(await fetch(f)).text();const pre=node('pre',t);pre.style.cssText='white-space:pre-wrap;font:11px/1.6 monospace';q.append(pre)}q.append(node('p','zip.js：BSD-3-Clause；fflate：MIT。相关版权声明保留在对应源文件中。'));});}
 
 window.receiveNative=(type,value)=>{
  if(type==='bookwalker'){
@@ -225,10 +231,10 @@ window.receiveNative=(type,value)=>{
    return;
  }
 
- if(type==='textEncoding'){const p=showPanel('文本编码');p.append(node('p',value.filename));for(const [encoding,label] of [['GB18030','中文 · GB18030'],['Shift_JIS','日文 · Shift-JIS'],['EUC-KR','韩文 · EUC-KR'],['UTF-16LE','UTF-16 LE'],['UTF-16BE','UTF-16 BE'],['windows-1252','西欧 · Windows-1252']])actionButton(p,label,()=>{closePanel();send('importText',{uri:value.uri,encoding})});return;}
+ if(type==='textEncoding'){const p=showPanel('文本编码');p.append(node('p',value.filename));for(const [encoding,label] of [['GB18030','中文 · GB18030'],['Shift_JIS','日文 · Shift-JIS'],['EUC-KR','韩文 · EUC-KR'],['UTF-16LE','UTF-16 LE'],['UTF-16BE','UTF-16 BE'],['windows-1252','西欧 · Windows-1252']])actionButton(p,label,()=>{closePanel();send('importText',{uri:value.uri,encoding,open:!!value.open})});return;}
  if(type==='error'){engine?.reject?.(new Error(value));error(new Error(value));return;}
  if(type==='notice'){toast(value);return;}
- if(type==='imported'){const i=library.findIndex(x=>x.id===value.id);if(i<0)library.push(value);else library[i]=value;renderLibrary();toast('已导入：'+caption(value));}
+ if(type==='imported'||type==='openBook'){const i=library.findIndex(x=>x.id===value.id);if(i<0)library.push(value);else library[i]=value;renderLibrary();if(type==='openBook'){pendingOpen=value;openRequestedBook();}else toast('已导入：'+caption(value));}
  if(type==='library'){library=value;renderLibrary();}
  if(type==='font'){const id=fontForProfile||profile?.id;if(!id)return;state.fonts??={};state.fonts[id]=value;state.profiles[id].font='custom';state.profiles[id].publisher=false;save();if(profile?.id===id){engine.settings(layoutPrefs(prefs()),value).catch(error);settings('style');}toast('已导入字体');}
 };

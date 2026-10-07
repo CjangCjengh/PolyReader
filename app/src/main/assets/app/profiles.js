@@ -68,6 +68,8 @@ export function contentCSS(p,customFont){
  body{color:${fg}!important;background:transparent!important;font-size:1rem!important;writing-mode:inherit!important;-webkit-writing-mode:inherit!important;${typography}}
  p,div,li,blockquote,dd{${typography}}p{${p.publisher?'':`margin-block-start:${p.spacing}em!important;margin-block-end:${p.spacing}em!important;`}${p.align==='original'?'':`text-align:${p.align}!important;`}word-break:normal;overflow-wrap:break-word;${p.preset==='ridi'?'word-spacing:normal!important;':''}}
  body,p,div,span,li,h1,h2,h3,h4{color:${fg}!important;}body *:not(img):not(svg):not(image):not(mark){background-color:transparent!important}
+ [data-poly-clear-text]{color:transparent!important;-webkit-text-fill-color:transparent!important;}
+ ${isDarkTheme(p)?`[data-poly-stroked-text]{-webkit-text-stroke-color:${fg}!important;}`:''}
  html:has(body[data-poly-image]){writing-mode:horizontal-tb!important;-webkit-writing-mode:horizontal-tb!important}
  body[data-poly-image]{text-align:center!important}body[data-poly-image]>div{height:100%!important;text-align:center!important}body[data-poly-image] img,body[data-poly-image] svg{display:block;margin:auto!important;object-fit:contain!important}
  img,svg{max-width:100%;max-height:100%;object-fit:contain}a{color:inherit}pre{white-space:pre-wrap}ruby{ruby-position:over}rt{font-size:0.5em}${p.ruby?'':'rt,rp{display:none!important}'}

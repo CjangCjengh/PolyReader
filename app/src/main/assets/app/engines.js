@@ -5,6 +5,7 @@ import * as CFI from './vendor/foliate/epubcfi.js';
 import {Overlayer} from './vendor/foliate/overlayer.js';
 import {SectionProgress} from './vendor/foliate/progress.js';
 import {contentCSS,palette,highlightColors,highlightStyle,selectionStyle} from './profiles.js';
+import {capturePublisherStyles} from './publisher-styles.js';
 
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 export async function loadBook(id){
@@ -92,6 +93,7 @@ export class RidiEngine {
      this.doc=doc;this.reader=null;
      await new Promise((resolve,reject)=>{const script=doc.createElement('script');script.src='https://appassets.androidplatform.net/app/vendor/ridi/reader.js';script.onload=resolve;script.onerror=()=>reject(new Error('RIDI 内核加载失败'));doc.head.append(script);});
      w.android={dipToPixel:x=>x};
+     capturePublisherStyles(doc);
      this.style=doc.createElement('style');this.style.dataset.poly='layout';doc.head.append(this.style);
      await this.layout();
      doc.addEventListener('click',e=>{const a=e.target.closest('a[href]');if(!a)return;e.preventDefault();const href=this.book.sections[index].resolveHref?.(a.getAttribute('href'))||a.getAttribute('href');if(this.book.isExternal(href)){this.callbacks.notice('离线模式未打开外部链接');return;}if((a.getAttribute('epub:type')||'').includes('noteref'))this.callbacks.footnote(href);else this.go(href).catch(this.callbacks.error);});
@@ -109,6 +111,8 @@ export class RidiEngine {
      html{width:${W}px!important;min-width:0!important;height:${scroll?'auto':H+'px'}!important;margin:0!important;padding:0!important;overflow-x:hidden!important;overflow-y:${scroll?'auto':'hidden'}!important;}
      body{box-sizing:content-box!important;width:${cw}px!important;max-width:none!important;min-width:0!important;height:${scroll?'auto':ch+'px'}!important;max-height:none!important;margin:${top}px ${m}px ${bottom}px!important;padding:0!important;column-width:${scroll?'auto':cw+'px'}!important;column-gap:${2*m}px!important;column-fill:auto!important;column-count:auto!important;position:static!important;}
      img,svg{max-width:${cw}px!important;max-height:${ch}px!important;break-inside:avoid!important;}body>div{max-width:100%}h1,h2,h3{break-after:avoid}::-webkit-scrollbar{display:none}
+     [data-poly-text-overlay]{break-inside:auto!important;page-break-inside:auto!important;}
+     [data-poly-overlay-inset]{margin-inline:1px!important;}
    `;
    // Force style resolution before waiting, so newly selected fonts participate in pagination.
    void doc.documentElement.offsetWidth;
@@ -135,7 +139,11 @@ export class RidiEngine {
    if(typeof anchor==='function')anchor=anchor(this.doc);
    if(typeof anchor==='number')offset=scroll?anchor*Math.max(0,this.doc.documentElement.scrollHeight-this.frame.clientHeight):Math.floor(anchor*Math.max(0,this.pages-1))*this.pageUnit;
    else if(anchor){
-     const rects=anchor.getClientRects?.();let r=(rects&&[...rects].find(x=>x.width>0&&x.height>0))||anchor.getBoundingClientRect();
+     // A collapsed caret at a column boundary can belong to the preceding line.
+     // Measure the character at that CFI so reopening lands on its actual page.
+     let target=anchor;const text=anchor.startContainer,start=anchor.startOffset;
+     if(anchor.collapsed&&text?.nodeType===3&&start<text.length){target=anchor.cloneRange();target.setEnd(text,start+(text.data.codePointAt(start)>0xffff?2:1));}
+     const rects=target.getClientRects?.();let r=(rects&&[...rects].find(x=>x.width>0&&x.height>0))||target.getBoundingClientRect();
      // Element CFIs for images resolve to empty ranges, which have no client rect.
      if(!r.width&&!r.height){const node=anchor.startContainer,el=node?.nodeType===1?node:node?.parentElement;r=el?.getBoundingClientRect()||r;}
      offset=scroll?r.top+w.scrollY:Math.floor((r.left+w.scrollX)/this.pageUnit)*this.pageUnit;
