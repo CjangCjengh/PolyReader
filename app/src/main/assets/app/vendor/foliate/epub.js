@@ -708,11 +708,12 @@ class Loader {
     #children = new Map()
     #refCount = new Map()
     eventTarget = new EventTarget()
-    constructor({ loadText, loadBlob, resources }) {
+    constructor({ loadText, loadBlob, resources, resolvePath }) {
         this.loadText = loadText
         this.loadBlob = loadBlob
         this.manifest = resources.manifest
         this.assets = resources.manifest
+        this.resolvePath = resolvePath
         // needed only when replacing in (X)HTML w/o parsing (see below)
         //.filter(({ mediaType }) => ![MIME.XHTML, MIME.HTML].includes(mediaType))
     }
@@ -786,7 +787,14 @@ class Loader {
     async loadHref(href, base, parents = []) {
         if (isExternal(href)) return href
         const path = resolveURL(href, base)
-        const item = this.manifest.find(item => item.href === path)
+        let item = this.manifest.find(item => item.href === path)
+        // PolyReader: recover unambiguous archive-name casing errors in CSS URLs.
+        if (!item && this.resolvePath) {
+            const canonical = this.resolvePath(path)
+            const matches = canonical ? this.manifest.filter(item =>
+                this.resolvePath(item.href) === canonical) : []
+            if (matches.length === 1) item = matches[0]
+        }
         if (!item) return href
         return this.loadItem(item, parents.concat(base))
     }
@@ -933,10 +941,11 @@ export class EPUB {
     parser = new DOMParser()
     #loader
     #encryption
-    constructor({ loadText, loadBlob, getSize, sha1 }) {
+    constructor({ loadText, loadBlob, getSize, sha1, resolvePath }) {
         this.loadText = loadText
         this.loadBlob = loadBlob
         this.getSize = getSize
+        this.resolvePath = resolvePath
         this.#encryption = new Encryption(deobfuscators(sha1))
     }
     async #loadXML(uri) {
@@ -974,6 +983,7 @@ ${doc.querySelector('parsererror').innerText}`)
             loadBlob: uri => Promise.resolve(this.loadBlob(uri))
                 .then(this.#encryption.getDecoder(uri)),
             resources: this.resources,
+            resolvePath: this.resolvePath,
         })
         this.transformTarget = this.#loader.eventTarget
         this.sections = this.resources.spine.map((spineItem, index) => {

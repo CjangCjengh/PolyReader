@@ -6,17 +6,18 @@ import {Overlayer} from './vendor/foliate/overlayer.js';
 import {SectionProgress} from './vendor/foliate/progress.js';
 import {contentCSS,palette,highlightColors,highlightStyle,selectionStyle} from './profiles.js';
 import {capturePublisherStyles} from './publisher-styles.js';
+import {resourceIndex} from './epub-resources.js';
 
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 export async function loadBook(id){
  const origin='https://appassets.androidplatform.net';
  const entries=await (await fetch(`${origin}/index/${id}`)).json();
- const map=new Map(entries.map(e=>[e.name,e.size]));
+ const resources=resourceIndex(entries);
  const url=name=>`${origin}/entry/${id}/${name.split('/').map(encodeURIComponent).join('/')}`;
  const book=await new EPUB({
-   loadText:async name=>map.has(name)?(await fetch(url(name))).text():null,
-   loadBlob:async(name,type)=>map.has(name)?new Blob([await(await fetch(url(name))).arrayBuffer()],{type}):null,
-   getSize:name=>map.get(name)||0
+   loadText:async name=>{const path=resources.resolve(name);return path?(await fetch(url(path))).text():null;},
+   loadBlob:async(name,type)=>{const path=resources.resolve(name);return path?new Blob([await(await fetch(url(path))).arrayBuffer()],{type}):null;},
+   getSize:resources.size,resolvePath:resources.resolve
  }).init();
  // Content is untrusted. Remove executable/navigation elements before a section gets a Blob URL.
  book.transformTarget?.addEventListener('data',({detail})=>{
