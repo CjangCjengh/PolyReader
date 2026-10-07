@@ -106,7 +106,7 @@ export class RidiEngine {
    const W=Math.max(100,this.frame.clientWidth),H=Math.max(100,this.frame.clientHeight),m=Math.min(p.margin,W/5),top=p.topMargin??m,bottom=p.bottomMargin??m,cw=W-2*m,ch=H-top-bottom;
    const scroll=p.flow==='scrolled';
    this.style.textContent=contentCSS({...p,writing:'horizontal'},this.custom)+`
-     html{width:${W}px!important;height:${scroll?'auto':H+'px'}!important;margin:0!important;padding:0!important;overflow-x:hidden!important;overflow-y:${scroll?'auto':'hidden'}!important;}
+     html{width:${W}px!important;min-width:0!important;height:${scroll?'auto':H+'px'}!important;margin:0!important;padding:0!important;overflow-x:hidden!important;overflow-y:${scroll?'auto':'hidden'}!important;}
      body{box-sizing:content-box!important;width:${cw}px!important;max-width:none!important;min-width:0!important;height:${scroll?'auto':ch+'px'}!important;max-height:none!important;margin:${top}px ${m}px ${bottom}px!important;padding:0!important;column-width:${scroll?'auto':cw+'px'}!important;column-gap:${2*m}px!important;column-fill:auto!important;column-count:auto!important;position:static!important;}
      img,svg{max-width:${cw}px!important;max-height:${ch}px!important;break-inside:avoid!important;}body>div{max-width:100%}h1,h2,h3{break-after:avoid}::-webkit-scrollbar{display:none}
    `;
@@ -119,6 +119,9 @@ export class RidiEngine {
    this.reader=new w.ReaderJS.Reader(doc.documentElement,context,0,this.book.sections[this.index].id);
    await delay(30);
    this.pageUnit=scroll?H:W;this.pages=Math.max(1,scroll?Math.ceil(doc.documentElement.scrollHeight/H):this.reader.calcPageCount());
+   // Multicolumn overflow can omit the final outer margin. Reserve the complete
+   // last viewport so the browser can reach every page's intended offset.
+   if(!scroll)this.style.textContent+=`html{min-width:${this.pages*W}px!important;}`;
  }
  async settings(prefs,custom){
    while(this.busy&&!this.destroyed)await delay(20);
@@ -131,7 +134,12 @@ export class RidiEngine {
    let offset=0;
    if(typeof anchor==='function')anchor=anchor(this.doc);
    if(typeof anchor==='number')offset=scroll?anchor*Math.max(0,this.doc.documentElement.scrollHeight-this.frame.clientHeight):Math.floor(anchor*Math.max(0,this.pages-1))*this.pageUnit;
-   else if(anchor){const rects=anchor.getClientRects?.();const r=(rects&&[...rects].find(x=>x.width>0&&x.height>0))||anchor.getBoundingClientRect();offset=scroll?r.top+w.scrollY:Math.floor((r.left+w.scrollX)/this.pageUnit)*this.pageUnit;}
+   else if(anchor){
+     const rects=anchor.getClientRects?.();let r=(rects&&[...rects].find(x=>x.width>0&&x.height>0))||anchor.getBoundingClientRect();
+     // Element CFIs for images resolve to empty ranges, which have no client rect.
+     if(!r.width&&!r.height){const node=anchor.startContainer,el=node?.nodeType===1?node:node?.parentElement;r=el?.getBoundingClientRect()||r;}
+     offset=scroll?r.top+w.scrollY:Math.floor((r.left+w.scrollX)/this.pageUnit)*this.pageUnit;
+   }
    this.reader.scrollTo(Math.max(0,offset));await delay(35);
  }
  async go(target,remember=true){
@@ -149,18 +157,20 @@ export class RidiEngine {
    if(this.busy||!this.reader)return;
    const w=this.frame.contentWindow,scroll=this.prefs.flow==='scrolled';
    const offset=scroll?w.scrollY:w.scrollX,max=scroll?Math.max(0,this.doc.documentElement.scrollHeight-this.frame.clientHeight):(this.pages-1)*this.pageUnit;
-   if((dir>0&&offset>=max-3)||(dir<0&&offset<=3)) {
+   const page=Math.max(0,Math.min(this.pages-1,Math.round(offset/this.pageUnit)));
+   const boundary=scroll?((dir>0&&offset>=max-3)||(dir<0&&offset<=3)):(dir>0?page===this.pages-1:page===0);
+   if(boundary) {
      let index=this.index+dir;while(this.book.sections[index]?.linear==='no')index+=dir;
      if(index<0||index>=this.book.sections.length){this.callbacks.notice(dir>0?'已到书末':'已到书首');return;}
      await this.open(index,dir>0?0:1);
-   } else {this.reader.scrollTo(Math.max(0,Math.min(max,offset+dir*this.pageUnit)),this.prefs.animation);await delay(this.prefs.animation?260:35);this.emitLocation();}
+   } else {this.reader.scrollTo(Math.max(0,Math.min(max,scroll?offset+dir*this.pageUnit:(page+dir)*this.pageUnit)),this.prefs.animation);await delay(this.prefs.animation?260:35);this.emitLocation();}
  }
  async fraction(value){while(this.busy&&!this.destroyed)await delay(20);if(this.destroyed)return;const[index,anchor]=this.progress.getSection(value);if(index!==this.index)await this.open(index,anchor);else{await this.moveAnchor(anchor);this.emitLocation();}}
  emitLocation(){
    if(!this.reader)return;
    const w=this.frame.contentWindow,doc=this.doc,scroll=this.prefs.flow==='scrolled',offset=scroll?w.scrollY:w.scrollX;
    const page=Math.max(0,Math.round(offset/this.pageUnit)),frac=scroll?offset/Math.max(1,doc.documentElement.scrollHeight):page/this.pages;
-   let range=doc.createRange();range.selectNodeContents(doc.body);range.collapse(true);
+   let range=doc.createRange(),found=false;range.selectNodeContents(doc.body);range.collapse(true);
    // Persist a standard CFI for both engines. Locate a visible text range without mutating the DOM.
    outer:for(const node of this.reader.content.nodes){
      if(node.nodeType!==3||!node.textContent.trim())continue;
@@ -168,7 +178,11 @@ export class RidiEngine {
      if(!rects.some(r=>r.left>=0&&r.left<this.frame.clientWidth&&r.top>=0&&r.top<this.frame.clientHeight))continue;
      let low=0,high=node.length;
      while(low<high){const mid=(low+high)>>1;r.setStart(node,mid);r.setEnd(node,Math.min(mid+1,node.length));const b=r.getBoundingClientRect();if(scroll?b.bottom<0:b.right<0)low=mid+1;else high=mid;}
-     r.setStart(node,Math.min(low,node.length));r.collapse(true);range=r;break outer;
+     r.setStart(node,Math.min(low,node.length));r.collapse(true);range=r;found=true;break outer;
+   }
+   if(!found)for(const image of doc.querySelectorAll('img,svg')){
+     const b=image.getBoundingClientRect();
+     if(b.width>1&&b.height>1&&b.right>1&&b.left<this.frame.clientWidth-1&&b.bottom>1&&b.top<this.frame.clientHeight-1){range.selectNodeContents(image);break;}
    }
    this.location={index:this.index,cfi:cfiFor(this.book,this.index,range),fraction:this.progress.getProgress(this.index,frac).fraction,page:page+1,pages:this.pages,label:''};
    this.callbacks.location(this.location);

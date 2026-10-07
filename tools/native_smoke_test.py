@@ -35,7 +35,7 @@ def check(name,condition,details=None):
     results.append({'name':name,'passed':True,'details':details});print('PASS',name,flush=True)
 def setting(key,value):
     js("document.getElementById('panel-close').click();document.getElementById('settings-button').click();"+
-       "(()=>{const el=document.getElementById('pref-"+key+"');if(el.type==='checkbox')el.checked="+json.dumps(bool(value))+";else el.value="+json.dumps(str(value))+";el.dispatchEvent(new Event('change'));})();document.getElementById('panel-close').click();")
+       "(()=>{if(!document.getElementById('pref-"+key+"'))document.getElementById('style-button').click();const el=document.getElementById('pref-"+key+"');if(el.type==='checkbox')el.checked="+json.dumps(bool(value))+";else el.value="+json.dumps(str(value))+";el.dispatchEvent(new Event('change'));})();document.getElementById('panel-close').click();")
     time.sleep(.5)
 
 
@@ -58,7 +58,7 @@ try:
     check('No persistent page footer',js("!document.querySelector('#page-info')"))
     info=js("(async()=>{await polyReader.openBook(polyReader.library.find(x=>x.language==='ja'),'bookwalker');return {engine:polyReader.profile.engine,frame:document.body.classList.contains('native-reader'),prefs:polyReader.state.profiles.bookwalker}})()")
     check('Japanese mounts native PUBLUS/MARS adapter',info['engine']=='bookwalker' and info['frame'],info['prefs'])
-    js("document.querySelector('#settings-button').click()")
+    js("document.querySelector('#style-button').click()")
     check('BOOK WALKER font control is 160 percent',js("document.querySelector('#pref-fontSize').value==='160' && document.querySelector('#pref-fontSize').nextElementSibling.textContent==='160%'"))
     themes=js("Array.from(document.querySelector('#pref-theme').options).map(o=>[o.value,o.text])")
     check('Polished settings copy',not any('截图' in str(t) for t in themes) and js("!document.querySelector('#panel-body').textContent.includes('截图')"))
@@ -111,7 +111,7 @@ try:
     wait_js('polyReader.engine.location.cfi==='+json.dumps(before));check('Native reopen restores CFI',True)
     info=js("(async()=>{polyReader.home();await polyReader.openBook(polyReader.library.find(x=>x.language==='ko'),'ridi');await polyReader.engine.go('EPUB/Text/Section0001.html');const d=polyReader.engine.doc,s=d.defaultView.getComputedStyle(d.querySelector('p'));return {reader:!!d.defaultView.ReaderJS.Reader,font:s.fontFamily,bg:d.defaultView.getComputedStyle(d.documentElement).backgroundColor,spacing:s.wordSpacing,pages:polyReader.engine.pages}})()")
     check('Korean RIDI engine uses screenshot sans-serif preset',info['reader'] and info['font']=='sans-serif' and info['bg']=='rgb(240, 232, 209)',info)
-    js("document.querySelector('#settings-button').click()")
+    js("document.querySelector('#style-button').click()")
     check('RIDI font control uses level 8',js("document.querySelector('#pref-fontSize').value==='8'"))
     check('Both readers offer identical theme choices',js("Array.from(document.querySelector('#pref-theme').options).map(o=>[o.value,o.text])")==themes)
     js("document.querySelector('#panel-close').click()")
