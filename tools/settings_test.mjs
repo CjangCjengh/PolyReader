@@ -25,4 +25,18 @@ const manual={...oldPreset,font:'ridi',lineHeight:1.8,spacing:.5,align:'justify'
 const preserved=m.migrateState({readerSettingsVersion:2,profiles:{ridi:manual}}).profiles.ridi;
 assert.equal(preserved.font,'ridi');assert.equal(preserved.lineHeight,1.8);assert.equal(preserved.spacing,.5);assert.equal(preserved.align,'justify');assert.equal(preserved.publisher,false);assert.equal(preserved.originalLineHeight,false);
 const stable=JSON.stringify(updated);m.migrateState(updated);assert.equal(JSON.stringify(updated),stable);
+const thai=m.profiles.find(p=>p.id==='ridi-thai');
+assert.equal(thai.engine,'ridi');assert.equal(thai.lang,'th');assert.equal(thai.defaults.font,'garuda');
+const existing={readerSettingsVersion:3,profiles:{ridi:{...preset,fontSize:10,theme:'night'},bookwalker:{...m.profiles[0].defaults,fontSize:180}},books:{a:{mode:'ridi',notes,location:{cfi:'same-position'}}},fonts:{ridi:{id:'custom-font'}}};
+const prior=structuredClone(existing);m.migrateState(existing);
+assert.deepEqual(existing.profiles.ridi,prior.profiles.ridi);assert.deepEqual(existing.profiles.bookwalker,prior.profiles.bookwalker);
+assert.deepEqual(existing.books,prior.books);assert.deepEqual(existing.fonts,prior.fonts);
+existing.profiles['ridi-thai'].fontSize=32;existing.profiles['ridi-thai'].theme='green';m.migrateState(existing);
+assert.equal(existing.profiles.ridi.fontSize,10);assert.equal(existing.profiles.ridi.theme,'night');
+assert.equal(existing.profiles['ridi-thai'].fontSize,32);assert.equal(existing.profiles['ridi-thai'].theme,'green');
+assert.equal(m.layoutPrefs(thai.defaults).fontSize,28);
+for(const [theme] of m.themeOptions)assert.deepEqual(m.palette({preset:'ridi-thai',theme}),m.palette({preset:'ridi',theme}));
+assert.match(m.contentCSS(thai.defaults),/font-family:'Garuda',sans-serif!important/);
+assert.doesNotMatch(m.contentCSS(preset),/font-family:Garuda/);
 console.log('PASS reader IDs, unit migration, custom settings, notes/positions/fonts preservation, idempotence, all shared palettes, RIDI phone/tablet sizes and orientation stability');
+console.log('PASS Thai profile settings isolation, migration, shared themes and independent font scale');

@@ -168,7 +168,7 @@ function settings(view='reading'){
  settingsView=view;const isStyle=view==='style',p=showPanel(profile.name+(isStyle?' · 阅读样式':' · 阅读设置'));
  if(isStyle){
  selectSetting(p,'theme','阅读背景',themeOptions);
- const f=profile.fontControl;rangeSetting(p,'fontSize','字号',f.min,f.max,f.step,f.suffix);selectSetting(p,'font','字体',profile.engine==='bookwalker'?[['serif','リュウミン'],['sans','ゴシックMB101']]:[['original','原书'],['serif','系统衬线'],['sans','系统黑体'],['ridi','RIDI Batang'],...(state.fonts?.[profile.id]?[['custom',state.fonts[profile.id].filename]]:[])]);
+ const f=profile.fontControl;rangeSetting(p,'fontSize','字号',f.min,f.max,f.step,f.suffix);selectSetting(p,'font','字体',profile.engine==='bookwalker'?[['serif','リュウミン'],['sans','ゴシックMB101']]:[['original','原书'],['serif','系统衬线'],['sans','系统黑体'],['ridi','RIDI Batang'],['garuda','Garuda'],...(state.fonts?.[profile.id]?[['custom',state.fonts[profile.id].filename]]:[])]);
  if(profile.engine!=='bookwalker')actionButton(p,'导入 TTF / OTF 字体',()=>{fontForProfile=profile.id;send('font')});
  if(profile.engine!=='bookwalker'){boolSetting(p,'originalLineHeight','原书行距');boolSetting(p,'publisher','原书段间距');}
  if(!prefs().originalLineHeight)rangeSetting(p,'lineHeight','行距',1.2,2.6,.05);
@@ -213,7 +213,7 @@ async function runSearch(query,status,list){
  }if(token===searchToken)status.textContent=count?`${count}${count===150?'（已达显示上限）':''} 个结果`:'没有找到匹配文字';}catch(e){status.textContent='搜索失败：'+e.message;}
 }
 function more(){const p=showPanel('更多');actionButton(p,'选择阅读器',()=>chooseMode(active));actionButton(p,'跳回书首',()=>{closePanel();engine.go(0).catch(error)});actionButton(p,'关于 PolyReader',about);}
-function about(){const p=showPanel('关于 PolyReader');p.append(node('h3','PolyReader'),node('div','0.4.10','about-version'),node('p','本地 EPUB / TXT 阅读器'),node('p','阅读器：BOOK☆WALKER、RIDI。每个阅读器独立保存字号、主题和操作设置。'));actionButton(p,'组件与许可',async()=>{const q=showPanel('组件与许可');q.append(node('p','BOOK☆WALKER 7.9.2：PUBLUS/MARS 排版内核，字体为リュウミン和ゴシックMB101。相关组件保留原版权。'),node('p','RIDI Reader.js 1.0.61、Foliate JS：MIT；RIDIBatang：SIL OFL 1.1。'));for(const f of ['vendor/ridi/LICENSE','vendor/foliate/LICENSE','fonts/RIDIBatang-LICENSE.txt']){const t=await(await fetch(f)).text();const pre=node('pre',t);pre.style.cssText='white-space:pre-wrap;font:11px/1.6 monospace';q.append(pre)}q.append(node('p','zip.js：BSD-3-Clause；fflate：MIT。相关版权声明保留在对应源文件中。'));});}
+function about(){const p=showPanel('关于 PolyReader');p.append(node('h3','PolyReader'),node('div','0.4.11','about-version'),node('p','本地 EPUB / TXT 阅读器'),node('p','阅读器：BOOK☆WALKER、RIDI、RIDI Thai。每个阅读器独立保存字号、主题和操作设置。'));actionButton(p,'组件与许可',async()=>{const q=showPanel('组件与许可');q.append(node('p','BOOK☆WALKER 7.9.2：PUBLUS/MARS 排版内核，字体为リュウミン和ゴシックMB101。相关组件保留原版权。'),node('p','RIDI Reader.js 1.0.61、Foliate JS：MIT；RIDIBatang：SIL OFL 1.1；Garuda：GPL 2.0 或更新版本（含字体嵌入例外）。'));for(const f of ['vendor/ridi/LICENSE','vendor/foliate/LICENSE','fonts/RIDIBatang-LICENSE.txt','fonts/Garuda-LICENSE.txt']){const t=await(await fetch(f)).text();const pre=node('pre',t);pre.style.cssText='white-space:pre-wrap;font:11px/1.6 monospace';q.append(pre)}q.append(node('p','zip.js：BSD-3-Clause；fflate：MIT。相关版权声明保留在对应源文件中。'));});}
 
 window.receiveNative=(type,value)=>{
  if(type==='bookwalker'){
