@@ -7,7 +7,6 @@ import android.content.pm.ActivityInfo;
 import android.net.Uri;
 import android.provider.OpenableColumns;
 import android.database.Cursor;
-import android.speech.tts.TextToSpeech;
 import android.util.AtomicFile;
 import android.view.*;
 import android.webkit.*;
@@ -34,15 +33,25 @@ public final class MainActivity extends Activity {
     private volatile boolean ready;
     private volatile boolean volumePaging;
     private boolean fullscreen;
-    private TextToSpeech tts;
-    private boolean ttsReady;
+    private boolean reading;
     private String exportText = "";
 
     @Override public void onCreate(Bundle saved) {
         super.onCreate(saved);
         books = new File(getFilesDir(), "books"); books.mkdirs();
         fonts = new File(getFilesDir(), "fonts"); fonts.mkdirs();
-        web = new WebView(this);
+        web = new WebView(this) {
+            private boolean usesReaderActions() {
+                HitTestResult hit=getHitTestResult();
+                return reading && (hit==null || hit.getType()!=HitTestResult.EDIT_TEXT_TYPE);
+            }
+            @Override public ActionMode startActionMode(ActionMode.Callback callback) {
+                return super.startActionMode(usesReaderActions()?readerActions(callback):callback);
+            }
+            @Override public ActionMode startActionMode(ActionMode.Callback callback,int type) {
+                return super.startActionMode(usesReaderActions()?readerActions(callback):callback,type);
+            }
+        };
         web.setBackgroundColor(0xfff6f4ee);
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true); s.setDomStorageEnabled(false);
@@ -75,6 +84,24 @@ public final class MainActivity extends Activity {
         root.setOnApplyWindowInsetsListener((v,insets)->{applyCutoutInsets(insets);return insets;});
         setContentView(root);
         web.loadUrl(ORIGIN + "/app/index.html");
+    }
+
+    // Keep Chromium's selection handles and lifecycle while our toolbar owns the actions.
+    private ActionMode.Callback2 readerActions(ActionMode.Callback original) {
+        return new ActionMode.Callback2() {
+            @Override public boolean onCreateActionMode(ActionMode mode,Menu menu) {
+                original.onCreateActionMode(mode,menu);menu.clear();return true;
+            }
+            @Override public boolean onPrepareActionMode(ActionMode mode,Menu menu) {
+                original.onPrepareActionMode(mode,menu);menu.clear();return true;
+            }
+            @Override public boolean onActionItemClicked(ActionMode mode,MenuItem item){return false;}
+            @Override public void onDestroyActionMode(ActionMode mode){original.onDestroyActionMode(mode);}
+            @Override public void onGetContentRect(ActionMode mode,View view,android.graphics.Rect rect){
+                if(original instanceof ActionMode.Callback2)((ActionMode.Callback2)original).onGetContentRect(mode,view,rect);
+                else super.onGetContentRect(mode,view,rect);
+            }
+        };
     }
 
     private void applyCutoutInsets(WindowInsets insets) {
@@ -265,6 +292,7 @@ public final class MainActivity extends Activity {
             case "importText": importUri(Uri.parse(o.getString("uri")),false,o.getString("encoding"));break;
             case "font": choose(true); break;
             case "window": {
+                reading=o.optBoolean("reader");
                 volumePaging=o.optBoolean("volume");
                 if(o.optBoolean("awake")) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON); else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                 boolean dark=o.optBoolean("dark"),full=o.optBoolean("fullscreen");
@@ -291,27 +319,12 @@ public final class MainActivity extends Activity {
                 break;
             }
             case "copy": ((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("PolyReader",o.optString("text"))); break;
-            case "dictionary": {
-                Intent i=new Intent(Intent.ACTION_PROCESS_TEXT).setType("text/plain").putExtra(Intent.EXTRA_PROCESS_TEXT,o.optString("text")).putExtra(Intent.EXTRA_PROCESS_TEXT_READONLY,true);
-                try { startActivity(Intent.createChooser(i,"选择词典或翻译应用")); } catch(ActivityNotFoundException e){ Toast.makeText(this,"请先安装支持文本查询的词典",Toast.LENGTH_SHORT).show(); } break;
-            }
-            case "speak": speak(o.optString("text"),o.optString("language","ja"),(float)o.optDouble("rate",1)); break;
-            case "stopSpeech": if(tts!=null) tts.stop(); break;
             case "export": exportText=o.optString("text"); startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/json").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE,"PolyReader-notes.json"),EXPORT_NOTES); break;
             case "delete": {
                 String id=o.optString("id"); if(!id.matches("[a-f0-9]{64}")) return;
                 io.execute(() -> { try { JSONArray old=new JSONArray(read("library.json","[]")),list=new JSONArray(); for(int i=0;i<old.length();i++) if(!old.getJSONObject(i).optString("id").equals(id)) list.put(old.get(i)); write("library.json",list.toString()); new File(books,id+".epub").delete(); event("library",list); } catch(Exception e){fail(e);} }); break;
             }
         }
-    }
-    private void speak(String text,String lang,float rate) {
-        if(tts==null) { tts=new TextToSpeech(this,status -> {ttsReady=status==TextToSpeech.SUCCESS; if(ttsReady) speak(text,lang,rate); else fail(new Exception("系统语音引擎不可用"));}); return; }
-        if(!ttsReady) return;
-        Set<android.speech.tts.Voice> voices=tts.getVoices(); android.speech.tts.Voice offline=null;
-        if(voices!=null) for(android.speech.tts.Voice v:voices) if(!v.isNetworkConnectionRequired() && v.getLocale().getLanguage().equals(Locale.forLanguageTag(lang).getLanguage())) {offline=v; break;}
-        if(offline==null) { fail(new Exception("系统未安装该语言的离线语音，请在 Android 文字转语音设置中安装")); return; }
-        tts.setVoice(offline); tts.setSpeechRate(rate); tts.stop();
-        for(int start=0;start<text.length();start+=2500) tts.speak(text.substring(start,Math.min(start+2500,text.length())),TextToSpeech.QUEUE_ADD,null,"poly-"+start);
     }
     private void handleIntent(Intent intent) { if(Intent.ACTION_VIEW.equals(intent.getAction()) && intent.getData()!=null){ Uri uri=intent.getData(); intent.setData(null); importUri(uri,false); } }
     @Override protected void onNewIntent(Intent i){super.onNewIntent(i);setIntent(i);if(ready)handleIntent(i);}
@@ -323,6 +336,6 @@ public final class MainActivity extends Activity {
     }
     @Override public void onBackPressed(){if(ready)web.evaluateJavascript("window.onNativeBack()",null);else super.onBackPressed();}
     @Override public boolean onKeyDown(int code,KeyEvent event){if(volumePaging && (code==KeyEvent.KEYCODE_VOLUME_DOWN || code==KeyEvent.KEYCODE_VOLUME_UP)){web.evaluateJavascript("window.nativeTurn("+(code==KeyEvent.KEYCODE_VOLUME_DOWN?1:-1)+")",null);return true;}return super.onKeyDown(code,event);}
-    @Override protected void onPause(){super.onPause();if(ready)web.evaluateJavascript("window.flushState?.()",null);if(tts!=null)tts.stop();}
-    @Override protected void onDestroy(){if(nativeReader!=null)nativeReader.close();if(tts!=null)tts.shutdown();io.shutdown();if(web!=null)web.destroy();super.onDestroy();}
+    @Override protected void onPause(){super.onPause();if(ready)web.evaluateJavascript("window.clearReaderSelection?.();window.flushState?.()",null);}
+    @Override protected void onDestroy(){if(nativeReader!=null)nativeReader.close();io.shutdown();if(web!=null)web.destroy();super.onDestroy();}
 }

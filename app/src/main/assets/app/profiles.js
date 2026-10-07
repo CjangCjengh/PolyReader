@@ -7,6 +7,13 @@ export const themes={amber:['#ebd2a5','#5a4114'],beige:['#f0e8d1','#32312f'],pap
 export const themeOptions=[['amber','暖黄'],['beige','米色'],['paper','纸白'],['white','纯白'],['sepia','茶色'],['green','浅绿'],['night','夜间'],['nightLight','夜间 · 亮字']];
 export function palette(p){return themes[p.theme]||themes.paper;}
 export function isDarkTheme(p){return p.theme==='night'||p.theme==='nightLight';}
+export function selectionStyle(p){return isDarkTheme(p)?{background:'#29465e',foreground:'#f3f3f3'}:{background:'#bad6e8',foreground:'#202b32'};}
+export const highlightColors=['#e4c56a','#8abc9b','#97bde0','#dba0a8'];
+const darkHighlights=['#514219','#244634','#283f59','#532e3a'];
+export function highlightStyle(p,color=highlightColors[0]){
+ const index=highlightColors.indexOf(color);
+ return {background:isDarkTheme(p)?darkHighlights[Math.max(0,index)]:color,foreground:palette(p)[1]};
+}
 // RIDI 26.9.1 EpubRenderingContext's original phone scale (base 18 dp).
 export const ridiFontRatios=[.8,.85,.9,.95,1,1.1,1.25,1.4,1.6,1.8,2.05,2.3];
 const ridiTabletRatios=[.7,.8,.9,.95,1,1.1,1.25,1.48,1.8,2,2.25,2.5];
@@ -54,6 +61,6 @@ export function contentCSS(p,customFont){
  html:has(body[data-poly-image]){writing-mode:horizontal-tb!important;-webkit-writing-mode:horizontal-tb!important}
  body[data-poly-image]{text-align:center!important}body[data-poly-image]>div{height:100%!important;text-align:center!important}body[data-poly-image] img,body[data-poly-image] svg{display:block;margin:auto!important;object-fit:contain!important}
  img,svg{max-width:100%;max-height:100%;object-fit:contain}a{color:inherit}pre{white-space:pre-wrap}ruby{ruby-position:over}rt{font-size:0.5em}${p.ruby?'':'rt,rp{display:none!important}'}
- ::selection{background:#d9bc6880}mark{background:#dfc16c66!important;color:inherit!important}
+ ::selection{background:${selectionStyle(p).background};color:${selectionStyle(p).foreground}}mark{background:${highlightStyle(p).background}!important;color:${fg}!important}
  `;
 }

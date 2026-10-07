@@ -33,10 +33,11 @@ html:has(body.native-reader){background:transparent!important}
 .reader-top svg,.reader-bottom svg{width:25px;height:25px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;display:block;margin:auto}
 .book-heading{min-width:0;padding:0 8px}.book-heading b{font-size:17px;font-weight:500;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 body[data-reader=bookwalker] .ridi-only,body:not([data-reader=bookwalker]) .bw-only{display:none}
-body[data-reader=bookwalker] .reader-top{grid-template-rows:44px 40px;grid-template-columns:44px minmax(0,1fr) 44px 44px}
-body[data-reader=bookwalker] #home{grid-row:1;grid-column:1}body[data-reader=bookwalker] #search-button{grid-row:1;grid-column:3}body[data-reader=bookwalker] #reader-more{grid-row:1;grid-column:4}
+body[data-reader=bookwalker] .reader-top{grid-template-rows:44px 40px;grid-template-columns:44px minmax(0,1fr) 44px 44px 44px}
+body[data-reader=bookwalker] #home{grid-row:1;grid-column:1}body[data-reader=bookwalker] #search-button{grid-row:1;grid-column:3}body[data-reader=bookwalker] #reader-more{grid-row:1;grid-column:5}
 body[data-reader=bookwalker] .book-heading{grid-row:2;grid-column:1/-1;text-align:center;padding:0 12px}
-body[data-reader=bookwalker] #add-bookmark{position:absolute;right:13px;top:calc(100% + 4px);color:#fff;background:#81766888;padding:7px;border-radius:0;height:42px}
+body[data-reader=bookwalker] #add-bookmark{grid-row:1;grid-column:4}
+#add-bookmark[aria-pressed=true] svg{fill:currentColor}
 .reader-bottom{left:0;right:0;bottom:0;padding:14px max(14px,var(--cutout-right,0px)) calc(var(--toolbar-bottom,0px) + 14px) max(14px,var(--cutout-left,0px));}
 .progress-row{display:flex;align-items:center;gap:12px;height:34px}.progress-row input{min-width:0;flex:1;width:100%;height:32px;margin:0;accent-color:var(--chrome-ink);padding:0}.progress-row .icon{min-width:38px;padding:7px;width:38px}
 #reading-progress{display:block;font-size:14px;line-height:24px;padding:2px 5px 10px;font-variant-numeric:tabular-nums}
@@ -57,3 +58,7 @@ body[data-reader=bookwalker].dark-reader .reader-bottom{background:rgba(30,30,30
 body[data-reader=bookwalker] .progress-row input[type=range]::-webkit-slider-runnable-track{background:#dedbd7}
 body[data-reader=bookwalker] .progress-row input[type=range]::-webkit-slider-thumb{width:21px;height:21px;background:#128bd2;margin-top:-9px}
 body.dark-reader .progress-row input[type=range]::-webkit-slider-runnable-track{background:#65625c}
+
+#selection-bar{left:0;top:0;bottom:auto;transform:none;max-width:calc(100vw - 24px);padding:3px;user-select:none;-webkit-user-select:none;touch-action:manipulation;overflow:hidden}
+#selection-bar button{font-size:17px;line-height:1.3;padding:12px 13px;min-height:48px;border-radius:8px}
+.bookmark-action{margin:0 0 14px}

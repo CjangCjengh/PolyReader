@@ -1,5 +1,6 @@
-import {profiles,themeOptions,palette,isDarkTheme,layoutPrefs,migrateState} from './profiles.js';
+import {profiles,themeOptions,palette,isDarkTheme,layoutPrefs,migrateState,highlightColors,highlightStyle} from './profiles.js';
 import {loadBook,engineRegistry,cfiFor} from './engines.js';
+import {selectionPopup} from './selection.js';
 
 const $=id=>document.getElementById(id);
 const node=(tag,text,cls)=>{const e=document.createElement(tag);if(text!=null)e.textContent=text;if(cls)e.className=cls;return e;};
@@ -14,8 +15,8 @@ const save=()=>{clearTimeout(saveTimer);saveTimer=setTimeout(flush,180);};
 const toast=text=>{$('toast').textContent=text;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,4200);};
 const error=e=>{console.error(e);busy(false);toast(e.message||String(e));};
 function busy(on,text='正在排版…'){loading=on;$('loading').hidden=!on;$('loading-text').textContent=text;}
-function setChrome(visible){document.body.classList.toggle('chrome-hidden',!visible);if(active){applyWindow();syncNativeUI();}}
-function showPanel(title){if(active)setChrome(false);$('panel-title').textContent=title;$('panel-body').replaceChildren();$('scrim').hidden=false;$('panel').hidden=false;return $('panel-body');}
+function setChrome(visible){if(visible)clearSelection();document.body.classList.toggle('chrome-hidden',!visible);if(active){applyWindow();syncNativeUI();}}
+function showPanel(title){clearSelection();if(active)setChrome(false);$('panel-title').textContent=title;$('panel-body').replaceChildren();$('scrim').hidden=false;$('panel').hidden=false;return $('panel-body');}
 function closePanel(){searchToken++;$('panel').hidden=true;$('scrim').hidden=true;}
 function actionButton(parent,title,callback,cls='panel-action'){const b=node('button',title,cls);b.onclick=callback;parent.append(b);return b;}
 function caption(item){return item.title||item.filename.replace(/\.(epub|txt)$/i,'');}
@@ -37,7 +38,7 @@ function chooseMode(item){const p=showPanel('选择阅读器');
  for(const x of profiles){const b=node('button',null,'mode-card');b.append(node('strong',x.name));b.onclick=()=>{closePanel();openBook(item,x.id)};p.append(b);}
 }
 async function openBook(item,mode){
- if(loading)return;clearTimeout(settingsTimer);closePanel();$('selection-bar').hidden=true;selection=null;flush();busy(true,'正在打开书籍…');
+ if(loading)return;clearTimeout(settingsTimer);clearSelection();closePanel();flush();busy(true,'正在打开书籍…');
  const previous=active?.id===item.id&&engine?engine.location:null;
  try{
    if(engine){engine.destroy();engine=null;}
@@ -56,35 +57,63 @@ async function openBook(item,mode){
 }
 function updateLocation(loc){
  if(!active||loading)return;
+ if(selection&&bookState().location?.cfi!==loc.cfi)clearSelection();
  const bs=bookState();bs.location=loc;bs.locations[profile.id]=loc;bs.lastRead=Date.now();
  $('progress').value=Math.round(Math.max(0,Math.min(1,loc.fraction))*1000);const page=profile.engine==='bookwalker'?engine.pageCount:null;const count=page?`${page.page} / ${page.pages} 页 · `:loc.pages?`本章 ${loc.page} / ${loc.pages} · `:'';$('reading-progress').textContent=count+Math.round(loc.fraction*100)+'%';syncNativeUI();
 
- save();
+ updateBookmarkButton();save();
 }
 function applyWindow(){
  const p=prefs(),[bg,fg]=palette(p);document.body.dataset.reader=profile.id;document.documentElement.style.setProperty('--reader-bg',bg);document.documentElement.style.setProperty('--reader-ink',fg);
- const dark=isDarkTheme(p);document.body.classList.toggle('dark-reader',dark);$('selection-speak').hidden=profile.id==='ridi';const bw=profile.id==='bookwalker';$('style-button').querySelector('span').textContent=bw?'样式':'阅读样式';$('notes-button').querySelector('span').textContent=bw?'书签':'读书笔记';$('settings-button').querySelector('span').textContent=bw?'设置':'阅读设置';document.documentElement.style.setProperty('--chrome-bg',dark?'#262626':bw?'#ffffff':blend(bg,fg,.05));document.documentElement.style.setProperty('--chrome-ink',dark?'#d0d0d0':bw?'#827b75':'#797768');document.documentElement.style.setProperty('--card',dark?'#242929':'#fffef9');document.documentElement.style.setProperty('--ink',dark?'#dce3de':'#23372f');document.documentElement.style.setProperty('--paper',dark?'#181b1b':'#f6f4ee');document.documentElement.style.setProperty('--line',dark?'#3d4641':'#e3e5dc');
- send('window',{volume:p.volume,awake:p.awake,fullscreen:p.fullscreen,brightness:p.brightness,orientation:p.orientation,dark,chrome:!document.body.classList.contains('chrome-hidden')});
+ const dark=isDarkTheme(p);document.body.classList.toggle('dark-reader',dark);const bw=profile.id==='bookwalker';$('style-button').querySelector('span').textContent=bw?'样式':'阅读样式';$('notes-button').querySelector('span').textContent=bw?'书签':'读书笔记';$('settings-button').querySelector('span').textContent=bw?'设置':'阅读设置';document.documentElement.style.setProperty('--chrome-bg',dark?'#262626':bw?'#ffffff':blend(bg,fg,.05));document.documentElement.style.setProperty('--chrome-ink',dark?'#d0d0d0':bw?'#827b75':'#797768');document.documentElement.style.setProperty('--card',dark?'#242929':'#fffef9');document.documentElement.style.setProperty('--ink',dark?'#dce3de':'#23372f');document.documentElement.style.setProperty('--paper',dark?'#181b1b':'#f6f4ee');document.documentElement.style.setProperty('--line',dark?'#3d4641':'#e3e5dc');
+ send('window',{reader:true,volume:p.volume,awake:p.awake,fullscreen:p.fullscreen,brightness:p.brightness,orientation:p.orientation,dark,chrome:!document.body.classList.contains('chrome-hidden')});
 }
 function home(){
- if(loading)return;clearTimeout(settingsTimer);flush();send('stopSpeech');engine?.destroy();engine=null;book?.destroy?.();book=null;active=null;selection=null;$('selection-bar').hidden=true;closePanel();$('reading').hidden=true;$('shelf').hidden=false;document.body.classList.remove('chrome-hidden');send('window',{volume:false,awake:false,fullscreen:false,brightness:-1,orientation:0,dark:false});
+ if(loading)return;clearTimeout(settingsTimer);clearSelection();flush();engine?.destroy();engine=null;book?.destroy?.();book=null;active=null;closePanel();$('reading').hidden=true;$('shelf').hidden=false;document.body.classList.remove('chrome-hidden');send('window',{reader:false,volume:false,awake:false,fullscreen:false,brightness:-1,orientation:0,dark:false});
  for(const k of ['--card','--ink','--paper','--line'])document.documentElement.style.removeProperty(k);renderLibrary();
 }
-async function turn(dir){if(engine&&!loading)try{selection=null;$('selection-bar').hidden=true;await engine.turn(dir);}catch(e){error(e)}}
+async function turn(dir){if(engine&&!loading)try{clearSelection();await engine.turn(dir);}catch(e){error(e)}}
+function clearSelection(clearNative=true){
+ const previous=selection;selection=null;$('selection-bar').hidden=true;
+ if(clearNative&&previous?.native)send('bwClearSelection');
+ else if(clearNative&&previous?.doc)previous.doc.getSelection()?.removeAllRanges();
+ syncNativeUI();
+}
+function selectionRects(s){
+ if(s.native){const [left,top,right,bottom]=s.rect.map(v=>v/devicePixelRatio);return [{left,top,right,bottom}];}
+ const frame=s.doc.defaultView.frameElement,bounds=frame?.getBoundingClientRect()||{left:0,top:0};
+ return [...s.range.getClientRects()].map(r=>({left:r.left+bounds.left,top:r.top+bounds.top,right:r.right+bounds.left,bottom:r.bottom+bounds.top}));
+}
+function positionSelection(){
+ if(!selection||!active||!$('panel').hidden)return;
+ const bar=$('selection-bar'),style=getComputedStyle(document.documentElement),inset=key=>parseFloat(style.getPropertyValue(key))||0;
+ bar.hidden=false;
+ const position=selectionPopup(selectionRects(selection),{left:12+inset('--cutout-left'),right:innerWidth-12-inset('--cutout-right'),top:12+inset('--cutout-top'),bottom:innerHeight-12-inset('--toolbar-bottom')},bar.getBoundingClientRect(),selection.anchor);
+ if(!position){clearSelection();return;}
+ bar.style.left=position.x+'px';bar.style.top=position.y+'px';syncNativeUI();
+}
+function showSelection(value){
+ if(!active||!$('panel').hidden)return;
+ selection=value;if(!document.body.classList.contains('chrome-hidden'))setChrome(false);positionSelection();
+}
 function attachContent(doc,index){
+ let touch,anchor,ignoreClickUntil=0,selectionTimer;
  const selected=()=>{
-   const s=doc.getSelection();if(!s||s.isCollapsed||!s.toString().trim())return;
-   const r=s.getRangeAt(0).cloneRange();selection={text:s.toString(),cfi:cfiFor(book,index,r),range:r,doc,index};$('selection-bar').hidden=false;
+   if(!active||!engine?.contents().some(c=>c.doc===doc))return;
+   const s=doc.getSelection();if(!s||s.isCollapsed||!s.toString().trim()){if(selection?.doc===doc)clearSelection(false);return;}
+   const r=s.getRangeAt(0).cloneRange();showSelection({text:s.toString(),cfi:cfiFor(book,index,r),range:r,doc,index,anchor});
  };
- doc.addEventListener('selectionchange',()=>setTimeout(selected,100));
- let touch;
- doc.addEventListener('touchstart',e=>{const t=e.changedTouches[0];touch={x:t.clientX,y:t.clientY,time:Date.now()};if(prefs().flow==='paginated')e.stopImmediatePropagation();},{passive:true,capture:true});
+ doc.addEventListener('selectionchange',()=>{clearTimeout(selectionTimer);selectionTimer=setTimeout(selected,60)});
+ doc.addEventListener('contextmenu',e=>e.preventDefault());
+ doc.defaultView.addEventListener('scroll',()=>{if(selection?.doc===doc)positionSelection()},{passive:true});
+ doc.addEventListener('touchstart',e=>{const t=e.changedTouches[0],frame=doc.defaultView.frameElement?.getBoundingClientRect();anchor={x:t.clientX+(frame?.left||0),y:t.clientY+(frame?.top||0)};touch={x:t.clientX,y:t.clientY,time:Date.now(),selected:selection?.doc===doc};if(prefs().flow==='paginated')e.stopImmediatePropagation();},{passive:true,capture:true});
  doc.addEventListener('touchmove',e=>{if(touch&&prefs().flow==='paginated'){e.stopImmediatePropagation();if(Math.abs(e.changedTouches[0].clientX-touch.x)>15)e.preventDefault();}},{passive:false,capture:true});
- doc.addEventListener('touchend',e=>{if(!touch)return;const t=e.changedTouches[0],dx=t.clientX-touch.x,dy=t.clientY-touch.y,elapsed=Date.now()-touch.time;touch=null;if(prefs().flow==='paginated')e.stopImmediatePropagation();if(doc.getSelection()?.toString())return;if(Math.abs(dx)>45&&Math.abs(dx)>Math.abs(dy)&&elapsed<900&&prefs().flow==='paginated'){e.preventDefault();turn(prefs().writing==='vertical'?(dx>0?1:-1):(dx<0?1:-1));}},{passive:false,capture:true});
+ doc.addEventListener('touchend',e=>{if(!touch)return;const t=e.changedTouches[0],dx=t.clientX-touch.x,dy=t.clientY-touch.y,elapsed=Date.now()-touch.time,wasSelected=touch.selected;touch=null;if(prefs().flow==='paginated')e.stopImmediatePropagation();if(wasSelected&&elapsed<350&&Math.hypot(dx,dy)<12){e.preventDefault();ignoreClickUntil=Date.now()+500;clearSelection();return;}if(doc.getSelection()?.toString())return;if(Math.abs(dx)>45&&Math.abs(dx)>Math.abs(dy)&&elapsed<900&&prefs().flow==='paginated'){e.preventDefault();turn(prefs().writing==='vertical'?(dx>0?1:-1):(dx<0?1:-1));}},{passive:false,capture:true});
  doc.addEventListener('click',e=>{
+   if(Date.now()<ignoreClickUntil)return;
    if(e.target.closest('a'))return;
    if(doc.getSelection()?.toString().trim()){selected();return;}
-   $('selection-bar').hidden=true;selection=null;
+   clearSelection();
    const ratio=e.clientX/doc.defaultView.innerWidth;
    if(ratio<.22)turn(prefs().writing==='vertical'?1:-1);
    else if(ratio>.78)turn(prefs().writing==='vertical'?-1:1);
@@ -116,13 +145,16 @@ function settings(view='all'){
  actionButton(p,'恢复默认设置',()=>{state.profiles[profile.id]={...profile.defaults};save();applyWindow();engine.settings(layoutPrefs(prefs()),state.fonts?.[profile.id]).catch(error);settings();});
 }
 function changePref(key,value){prefs()[key]=value;save();applyWindow();clearTimeout(settingsTimer);settingsTimer=setTimeout(()=>engine.settings(layoutPrefs(prefs()),state.fonts?.[profile.id]).catch(error),100);if(key==='publisher')settings();}
-function addBookmark(){if(!engine?.location)return;const bs=bookState();if(bs.notes.some(n=>n.type==='bookmark'&&n.cfi===engine.location.cfi)){toast('这里已有书签');return;}bs.notes.push({id:Date.now()+'',type:'bookmark',cfi:engine.location.cfi,index:engine.location.index,label:engine.location.label||`阅读进度 ${Math.round(engine.location.fraction*100)}%`,time:new Date().toISOString()});save();toast('已添加书签');}
+function currentBookmark(){return active&&engine?.location?bookState().notes.find(n=>n.type==='bookmark'&&n.cfi===engine.location.cfi):null;}
+function updateBookmarkButton(){const marked=!!currentBookmark(),button=$('add-bookmark');button.setAttribute('aria-pressed',String(marked));button.setAttribute('aria-label',marked?'移除当前位置书签':'添加当前位置书签');}
+function addBookmark(){if(!engine?.location)return;const bs=bookState(),marked=currentBookmark();if(marked)bs.notes=bs.notes.filter(n=>n.id!==marked.id);else bs.notes.push({id:Date.now()+'',type:'bookmark',cfi:engine.location.cfi,index:engine.location.index,label:engine.location.label||`阅读进度 ${Math.round(engine.location.fraction*100)}%`,time:new Date().toISOString()});save();updateBookmarkButton();toast(marked?'已移除书签':'已添加书签');}
 function notes(){const p=showPanel('书签与笔记'),list=node('ul',null,'item-list');p.append(list);const all=bookState().notes;
- if(!all.length)p.append(node('p','点击右上角添加书签，长按正文选择文字后可以高亮和写笔记。'));
- for(const n of all){const li=node('li'),b=node('button');b.append(node('span',n.type==='bookmark'?'♧ '+n.label:n.text),node('small',n.note||new Date(n.time).toLocaleDateString()));b.onclick=()=>{closePanel();engine.go(n.cfi).catch(error)};const del=node('button','×','remove');del.setAttribute('aria-label','删除记录');del.onclick=()=>{bookState().notes=all.filter(x=>x.id!==n.id);save();if(profile.engine==='foliate'&&n.type==='highlight')engine.view.deleteAnnotation({value:n.cfi});else redrawNotes();notes();};li.append(b,del);list.append(li);}
+ const add=actionButton(p,currentBookmark()?'移除当前位置书签':'添加当前位置书签',()=>{addBookmark();notes()},'panel-action bookmark-action');add.id='bookmark-current';p.prepend(add);
+ if(!all.length)p.append(node('p','还没有书签或笔记。'));
+ for(const n of all){const li=node('li'),b=node('button');b.append(node('span',n.type==='bookmark'?'♧ '+n.label:n.text),node('small',n.note||new Date(n.time).toLocaleDateString()));b.onclick=()=>{closePanel();engine.go(n.cfi).catch(error)};const del=node('button','×','remove');del.setAttribute('aria-label','删除记录');del.onclick=()=>{bookState().notes=all.filter(x=>x.id!==n.id);save();updateBookmarkButton();if(profile.engine==='foliate'&&n.type==='highlight')engine.view.deleteAnnotation({value:n.cfi});else redrawNotes();notes();};li.append(b,del);list.append(li);}
  actionButton(p,'导出这本书的笔记（JSON）',()=>send('export',{text:JSON.stringify({format:'polyreader-notes',version:1,title:caption(active),bookId:active.id,notes:all},null,2)}));
 }
-function editNote(){if(!selection)return;const s=selection,p=showPanel('高亮与笔记');p.append(node('div',s.text,'quote'));let color='#e4c56a';const colors=node('div',null,'swatches');for(const c of ['#e4c56a','#8abc9b','#97bde0','#dba0a8']){const b=node('button');b.style.backgroundColor=c;b.setAttribute('aria-label','选择 '+c);b.classList.toggle('selected',c===color);b.onclick=()=>{color=c;for(const child of colors.children)child.classList.toggle('selected',child===b)};colors.append(b);}p.append(colors);const input=node('textarea');input.placeholder='写下你的想法（可选）';p.append(input);actionButton(p,'保存高亮',()=>{bookState().notes.push({id:Date.now()+'',type:'highlight',cfi:s.cfi,index:s.index,text:s.text,note:input.value,color,time:new Date().toISOString()});save();if(s.native)send('bwClearSelection');else s.doc.getSelection().removeAllRanges();selection=null;$('selection-bar').hidden=true;closePanel();redrawNotes();toast('已保存');},'primary');}
+function editNote(){if(!selection)return;const s=selection,p=showPanel('高亮与笔记');p.append(node('div',s.text,'quote'));let color=highlightColors[0];const colors=node('div',null,'swatches');for(const c of highlightColors){const b=node('button');b.style.backgroundColor=highlightStyle(prefs(),c).background;b.setAttribute('aria-label','选择 '+c);b.classList.toggle('selected',c===color);b.onclick=()=>{color=c;for(const child of colors.children)child.classList.toggle('selected',child===b)};colors.append(b);}p.append(colors);const input=node('textarea');input.placeholder='写下你的想法（可选）';p.append(input);actionButton(p,'保存高亮',()=>{bookState().notes.push({id:Date.now()+'',type:'highlight',cfi:s.cfi,index:s.index,text:s.text,note:input.value,color,time:new Date().toISOString()});save();clearSelection();closePanel();redrawNotes();toast('已保存');},'primary');}
 function redrawNotes(){if(engine&&active)engine.annotate(bookState().notes||[]).catch(e=>console.warn(e));}
 function searchPanel(){const p=showPanel('全文搜索'),form=node('form',null,'searchbox'),input=node('input'),go=node('button','搜索','primary');input.type='search';input.placeholder='搜索书中内容';input.setAttribute('aria-label','搜索内容');form.append(input,go);p.append(form);const status=node('small'),list=node('ul',null,'item-list');p.append(status,list);form.onsubmit=e=>{e.preventDefault();runSearch(input.value,status,list)};input.focus();}
 async function runSearch(query,status,list){
@@ -141,8 +173,8 @@ async function runSearch(query,status,list){
    if(count>=150)break;await new Promise(r=>setTimeout(r,0));
  }if(token===searchToken)status.textContent=count?`${count}${count===150?'（已达显示上限）':''} 个结果`:'没有找到匹配文字';}catch(e){status.textContent='搜索失败：'+e.message;}
 }
-function more(){const p=showPanel('更多');actionButton(p,'选择阅读器',()=>chooseMode(active));if(profile.id!=='ridi'){actionButton(p,'朗读当前段落',()=>{const contents=engine.contents(),loc=engine.location;const d=contents.find(x=>x.index===loc.index);if(!d)return;let text=d.doc.body.innerText;try{const r=book.resolveCFI(loc.cfi).anchor(d.doc);text=r.startContainer.parentElement.textContent;}catch{}send('speak',{text,language:book.metadata.language||profile.lang,rate:1});closePanel();});actionButton(p,'停止朗读',()=>{send('stopSpeech');closePanel()});}actionButton(p,'跳回书首',()=>{closePanel();engine.go(0).catch(error)});actionButton(p,'关于 PolyReader',about);}
-function about(){const p=showPanel('关于 PolyReader');p.append(node('h3','PolyReader'),node('div','0.4.0','about-version'),node('p','本地 EPUB / TXT 阅读器'),node('p','阅读器：BOOK☆WALKER、RIDI。每个阅读器独立保存字号、主题和操作设置。'));actionButton(p,'组件与许可',async()=>{const q=showPanel('组件与许可');q.append(node('p','BOOK☆WALKER 7.9.2：PUBLUS/MARS 排版内核，字体为リュウミン和ゴシックMB101。相关组件保留原版权。'),node('p','RIDI Reader.js 1.0.61、Foliate JS：MIT；RIDIBatang：SIL OFL 1.1。'));for(const f of ['vendor/ridi/LICENSE','vendor/foliate/LICENSE','fonts/RIDIBatang-LICENSE.txt']){const t=await(await fetch(f)).text();const pre=node('pre',t);pre.style.cssText='white-space:pre-wrap;font:11px/1.6 monospace';q.append(pre)}q.append(node('p','zip.js：BSD-3-Clause；fflate：MIT。相关版权声明保留在对应源文件中。'));});}
+function more(){const p=showPanel('更多');actionButton(p,'选择阅读器',()=>chooseMode(active));actionButton(p,'跳回书首',()=>{closePanel();engine.go(0).catch(error)});actionButton(p,'关于 PolyReader',about);}
+function about(){const p=showPanel('关于 PolyReader');p.append(node('h3','PolyReader'),node('div','0.4.1','about-version'),node('p','本地 EPUB / TXT 阅读器'),node('p','阅读器：BOOK☆WALKER、RIDI。每个阅读器独立保存字号、主题和操作设置。'));actionButton(p,'组件与许可',async()=>{const q=showPanel('组件与许可');q.append(node('p','BOOK☆WALKER 7.9.2：PUBLUS/MARS 排版内核，字体为リュウミン和ゴシックMB101。相关组件保留原版权。'),node('p','RIDI Reader.js 1.0.61、Foliate JS：MIT；RIDIBatang：SIL OFL 1.1。'));for(const f of ['vendor/ridi/LICENSE','vendor/foliate/LICENSE','fonts/RIDIBatang-LICENSE.txt']){const t=await(await fetch(f)).text();const pre=node('pre',t);pre.style.cssText='white-space:pre-wrap;font:11px/1.6 monospace';q.append(pre)}q.append(node('p','zip.js：BSD-3-Clause；fflate：MIT。相关版权声明保留在对应源文件中。'));});}
 
 window.receiveNative=(type,value)=>{
  if(type==='bookwalker'){
@@ -155,7 +187,7 @@ window.receiveNative=(type,value)=>{
    if(value.kind==='action')actions[value.value]?.();
    if(value.kind==='fraction')engine.fraction(value.value).catch(error);
    if(value.kind==='size')changePref('fontSize',value.value);
-   if(value.kind==='selection'&&value.value?.text&&value.value.text!=='null'){selection={...value.value,index:engine.location?.index,native:true};$('selection-bar').hidden=false;}
+   if(value.kind==='selection'){if(value.value?.text&&value.value.text!=='null'&&value.value.rect)showSelection({...value.value,index:engine.location?.index,native:true});else clearSelection(false);}
    return;
  }
 
@@ -171,10 +203,11 @@ state=migrateState(bootstrap.state||{});library=bootstrap.library||[];save();
 $('import-button').onclick=()=>send('import');$('about-button').onclick=about;$('filter').oninput=renderLibrary;$('home').onclick=home;$('panel-close').onclick=closePanel;$('scrim').onclick=closePanel;
 $('toc-button').onclick=toc;$('search-button').onclick=searchPanel;$('settings-button').onclick=()=>settings();$('style-button').onclick=()=>settings('style');$('notes-button').onclick=notes;$('add-bookmark').onclick=addBookmark;$('reader-more').onclick=more;
 $('jump-back').onclick=()=>engine.back?.().catch(error);$('progress').onchange=()=>engine.fraction(+$('progress').value/1000).catch(error);
-$('selection-copy').onclick=()=>{if(selection){send('copy',{text:selection.text});toast('已复制')}};$('selection-highlight').onclick=editNote;$('selection-dict').onclick=()=>selection&&send('dictionary',{text:selection.text});$('selection-speak').onclick=()=>selection&&send('speak',{text:selection.text,language:book.metadata.language||profile.lang,rate:1});
-window.onNativeBack=()=>{if(!$('panel').hidden)closePanel();else if(selection){if(selection.native)send('bwClearSelection');else selection.doc.getSelection().removeAllRanges();selection=null;$('selection-bar').hidden=true;}else if(active&&!document.body.classList.contains('chrome-hidden'))setChrome(false);else if(active)home();else send('exit');};
-window.nativeTurn=turn;window.flushState=flush;
-document.addEventListener('visibilitychange',()=>{if(document.hidden)flush()});
+$('selection-bar').addEventListener('pointerdown',e=>e.preventDefault());
+$('selection-copy').onclick=()=>{if(selection){send('copy',{text:selection.text});clearSelection();toast('已复制')}};$('selection-highlight').onclick=editNote;$('selection-close').onclick=()=>clearSelection();
+window.onNativeBack=()=>{if(!$('panel').hidden)closePanel();else if(selection)clearSelection();else if(active&&!document.body.classList.contains('chrome-hidden'))setChrome(false);else if(active)home();else send('exit');};
+window.nativeTurn=turn;window.flushState=flush;window.clearReaderSelection=clearSelection;
+document.addEventListener('visibilitychange',()=>{if(document.hidden){clearSelection();flush()}});
 document.addEventListener('keydown',e=>{if(e.target.matches('input,textarea,select'))return;if(e.key==='Escape')window.onNativeBack();if(active&&e.key==='ArrowRight')turn(prefs().writing==='vertical'?-1:1);if(active&&e.key==='ArrowLeft')turn(prefs().writing==='vertical'?1:-1);});
 // Debug builds expose diagnostics through WebView's standard remote debugging interface.
 window.polyReader={get engine(){return engine},get book(){return book},get active(){return active},get profile(){return profile},get state(){return state},get library(){return library},openBook,home,turn,setChrome};
@@ -182,6 +215,6 @@ renderLibrary();
 
 function syncNativeUI(){if(profile?.engine==='bookwalker'&&engine){send('bwUi',{modal:!$('panel').hidden||!$('loading').hidden,selectionRect:$('selection-bar').hidden?null:(r=>[r.left,r.top,r.right,r.bottom].map(x=>x*devicePixelRatio))($('selection-bar').getBoundingClientRect()),chrome:!document.body.classList.contains('chrome-hidden'),chromeRects:document.body.classList.contains('chrome-hidden')?[]:['reader-top','reader-bottom','add-bookmark'].map(id=>(r=>[r.left,r.top,r.right,r.bottom].map(x=>x*devicePixelRatio))($(id).getBoundingClientRect()))});}}
 new MutationObserver(syncNativeUI).observe(document.body,{attributes:true,subtree:true,attributeFilter:['hidden','class']});
-window.addEventListener('resize',()=>{if(engine&&active){clearTimeout(settingsTimer);settingsTimer=setTimeout(()=>engine.settings(layoutPrefs(prefs()),state.fonts?.[profile.id]).catch(error),200);}});
+window.addEventListener('resize',()=>{clearSelection();if(engine&&active){clearTimeout(settingsTimer);settingsTimer=setTimeout(()=>engine.settings(layoutPrefs(prefs()),state.fonts?.[profile.id]).catch(error),200);}});
 
 window.addEventListener('resize',()=>setTimeout(syncNativeUI,100));

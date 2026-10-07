@@ -4,7 +4,7 @@ import {EPUB} from './vendor/foliate/epub.js';
 import * as CFI from './vendor/foliate/epubcfi.js';
 import {Overlayer} from './vendor/foliate/overlayer.js';
 import {SectionProgress} from './vendor/foliate/progress.js';
-import {contentCSS,palette} from './profiles.js';
+import {contentCSS,palette,highlightColors,highlightStyle,selectionStyle} from './profiles.js';
 
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 export async function loadBook(id){
@@ -177,7 +177,7 @@ export class RidiEngine {
  async annotate(notes){
    const win=this.frame.contentWindow;
    let styles=this.doc.querySelector('style[data-poly="highlights"]');if(!styles){styles=this.doc.createElement('style');styles.dataset.poly='highlights';this.doc.head.append(styles);}styles.textContent='';
-   if(win.CSS?.highlights){win.CSS.highlights.clear();let n=0;for(const note of notes){if(note.type!=='highlight')continue;try{const resolved=this.book.resolveCFI(note.cfi);if(resolved.index!==this.index)continue;const name='poly'+n++;win.CSS.highlights.set(name,new win.Highlight(resolved.anchor(this.doc)));styles.textContent+=`::highlight(${name}){background-color:${note.color};color:inherit}`;}catch{}}}
+   if(win.CSS?.highlights){win.CSS.highlights.clear();let n=0;for(const note of notes){if(note.type!=='highlight')continue;try{const resolved=this.book.resolveCFI(note.cfi);if(resolved.index!==this.index)continue;const name='poly'+n++,style=highlightStyle(this.prefs,note.color);win.CSS.highlights.set(name,new win.Highlight(resolved.anchor(this.doc)));styles.textContent+=`::highlight(${name}){background-color:${style.background};color:${style.foreground}}`;}catch{}}}
  }
  destroy(){this.destroyed=true;clearTimeout(this.resizeTimer);clearTimeout(this.scrollTimer);this.observer.disconnect();this.frame.remove();}
 }
@@ -190,7 +190,7 @@ export class BookWalkerEngine {
    window.Native.post(JSON.stringify({action:'bwOpen',token:this.token,bookId:book.localId,prefs:this.nativePrefs(prefs),location:location?.cfi||''}));
    return this.ready;
  }
- nativePrefs(p){const[background,foreground]=palette(p);return {...p,background,foreground};}
+ nativePrefs(p){const[background,foreground]=palette(p);return {...p,background,foreground,selection:selectionStyle(p),highlightColors:Object.fromEntries(highlightColors.map(c=>[c,highlightStyle(p,c).background]))};}
  async receive(event){
    if(event.token!==this.token||this.destroyed)return;
    if(event.kind==='error'){this.reject?.(new Error(event.value));this.callbacks.error(new Error(event.value));return;}
