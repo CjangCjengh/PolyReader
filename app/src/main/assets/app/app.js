@@ -160,10 +160,11 @@ function boolSetting(parent,key,label){const row=node('div',null,'row'),l=node('
 function settings(view='all'){
  const p=showPanel(profile.name+' · 设置');
  selectSetting(p,'theme','阅读背景',themeOptions);
- const f=profile.fontControl;rangeSetting(p,'fontSize','字号',f.min,f.max,f.step,f.suffix);selectSetting(p,'font','字体',profile.engine==='bookwalker'?[['serif','リュウミン'],['sans','ゴシックMB101']]:[['serif','系统衬线'],['sans','系统黑体'],['ridi','RIDI Batang'],...(state.fonts?.[profile.id]?[['custom',state.fonts[profile.id].filename]]:[])]);
+ const f=profile.fontControl;rangeSetting(p,'fontSize','字号',f.min,f.max,f.step,f.suffix);selectSetting(p,'font','字体',profile.engine==='bookwalker'?[['serif','リュウミン'],['sans','ゴシックMB101']]:[['original','原书'],['serif','系统衬线'],['sans','系统黑体'],['ridi','RIDI Batang'],...(state.fonts?.[profile.id]?[['custom',state.fonts[profile.id].filename]]:[])]);
  if(profile.engine!=='bookwalker')actionButton(p,'导入 TTF / OTF 字体',()=>{fontForProfile=profile.id;send('font')});
- if(profile.engine!=='bookwalker')boolSetting(p,'publisher','保留出版社段落样式');
- {rangeSetting(p,'lineHeight','行距',1.2,2.6,.05);if(profile.engine!=='bookwalker'){rangeSetting(p,'spacing','段间距',0,1.5,.05);selectSetting(p,'align','对齐',[['original','原书'],['start','左对齐'],['justify','两端对齐']]);}}
+ if(profile.engine!=='bookwalker'){boolSetting(p,'originalLineHeight','原书行距');boolSetting(p,'publisher','原书段间距');}
+ if(!prefs().originalLineHeight)rangeSetting(p,'lineHeight','行距',1.2,2.6,.05);
+ if(profile.engine!=='bookwalker'){if(!prefs().publisher)rangeSetting(p,'spacing','段间距',0,1.5,.05);selectSetting(p,'align','对齐',[['original','原书'],['start','左对齐'],['justify','两端对齐']]);}
  rangeSetting(p,'margin','左右留白',0,60);rangeSetting(p,'topMargin','顶部留白',0,120);rangeSetting(p,'bottomMargin','底部留白',0,100);
  if(profile.engine!=='bookwalker')selectSetting(p,'flow','阅读方式',[['paginated','分页'],['scrolled','连续滚动']]);
  if(profile.engine==='foliate'){selectSetting(p,'writing','文字方向',[['vertical','纵排'],['horizontal','横排']]);boolSetting(p,'ruby','显示日文注音');boolSetting(p,'spread','宽屏双页');}
@@ -173,7 +174,7 @@ function settings(view='all'){
  rangeSetting(p,'brightness','亮度',0,1,.05);actionButton(p,prefs().brightness<0?'亮度：跟随系统':'恢复系统亮度',()=>{changePref('brightness',-1);settings()});
  actionButton(p,'恢复默认设置',()=>{state.profiles[profile.id]={...profile.defaults};save();applyWindow();engine.settings(layoutPrefs(prefs()),state.fonts?.[profile.id]).catch(error);settings();});
 }
-function changePref(key,value){prefs()[key]=value;save();applyWindow();clearTimeout(settingsTimer);settingsTimer=setTimeout(()=>engine.settings(layoutPrefs(prefs()),state.fonts?.[profile.id]).catch(error),100);if(key==='publisher')settings();}
+function changePref(key,value){prefs()[key]=value;save();applyWindow();clearTimeout(settingsTimer);settingsTimer=setTimeout(()=>engine.settings(layoutPrefs(prefs()),state.fonts?.[profile.id]).catch(error),100);if(key==='publisher'||key==='originalLineHeight')settings();}
 function currentBookmark(){return active&&engine?.location?bookState().notes.find(n=>n.type==='bookmark'&&n.cfi===engine.location.cfi):null;}
 function updateBookmarkButton(){const marked=!!currentBookmark(),button=$('add-bookmark');button.setAttribute('aria-pressed',String(marked));button.setAttribute('aria-label',marked?'移除当前位置书签':'添加当前位置书签');}
 function addBookmark(){if(!engine?.location)return;const bs=bookState(),marked=currentBookmark();if(marked)bs.notes=bs.notes.filter(n=>n.id!==marked.id);else bs.notes.push({id:Date.now()+'',type:'bookmark',cfi:engine.location.cfi,index:engine.location.index,label:engine.location.label||`阅读进度 ${Math.round(engine.location.fraction*100)}%`,time:new Date().toISOString()});save();updateBookmarkButton();toast(marked?'已移除书签':'已添加书签');}
@@ -203,7 +204,7 @@ async function runSearch(query,status,list){
  }if(token===searchToken)status.textContent=count?`${count}${count===150?'（已达显示上限）':''} 个结果`:'没有找到匹配文字';}catch(e){status.textContent='搜索失败：'+e.message;}
 }
 function more(){const p=showPanel('更多');actionButton(p,'选择阅读器',()=>chooseMode(active));actionButton(p,'跳回书首',()=>{closePanel();engine.go(0).catch(error)});actionButton(p,'关于 PolyReader',about);}
-function about(){const p=showPanel('关于 PolyReader');p.append(node('h3','PolyReader'),node('div','0.4.6','about-version'),node('p','本地 EPUB / TXT 阅读器'),node('p','阅读器：BOOK☆WALKER、RIDI。每个阅读器独立保存字号、主题和操作设置。'));actionButton(p,'组件与许可',async()=>{const q=showPanel('组件与许可');q.append(node('p','BOOK☆WALKER 7.9.2：PUBLUS/MARS 排版内核，字体为リュウミン和ゴシックMB101。相关组件保留原版权。'),node('p','RIDI Reader.js 1.0.61、Foliate JS：MIT；RIDIBatang：SIL OFL 1.1。'));for(const f of ['vendor/ridi/LICENSE','vendor/foliate/LICENSE','fonts/RIDIBatang-LICENSE.txt']){const t=await(await fetch(f)).text();const pre=node('pre',t);pre.style.cssText='white-space:pre-wrap;font:11px/1.6 monospace';q.append(pre)}q.append(node('p','zip.js：BSD-3-Clause；fflate：MIT。相关版权声明保留在对应源文件中。'));});}
+function about(){const p=showPanel('关于 PolyReader');p.append(node('h3','PolyReader'),node('div','0.4.7','about-version'),node('p','本地 EPUB / TXT 阅读器'),node('p','阅读器：BOOK☆WALKER、RIDI。每个阅读器独立保存字号、主题和操作设置。'));actionButton(p,'组件与许可',async()=>{const q=showPanel('组件与许可');q.append(node('p','BOOK☆WALKER 7.9.2：PUBLUS/MARS 排版内核，字体为リュウミン和ゴシックMB101。相关组件保留原版权。'),node('p','RIDI Reader.js 1.0.61、Foliate JS：MIT；RIDIBatang：SIL OFL 1.1。'));for(const f of ['vendor/ridi/LICENSE','vendor/foliate/LICENSE','fonts/RIDIBatang-LICENSE.txt']){const t=await(await fetch(f)).text();const pre=node('pre',t);pre.style.cssText='white-space:pre-wrap;font:11px/1.6 monospace';q.append(pre)}q.append(node('p','zip.js：BSD-3-Clause；fflate：MIT。相关版权声明保留在对应源文件中。'));});}
 
 window.receiveNative=(type,value)=>{
  if(type==='bookwalker'){

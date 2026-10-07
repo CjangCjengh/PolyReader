@@ -15,4 +15,14 @@ for(const [theme] of m.themeOptions)assert.deepEqual(m.palette({preset:'bookwalk
 assert.equal(m.ridiFontSize(8,412),25);assert.equal(m.ridiFontSize(8,600),30);assert.equal(m.ridiFontSize(8,720),32);
 globalThis.window={screen:{width:412,height:915}};assert.equal(m.layoutPrefs(m.profiles[0].defaults).fontSize,160);assert.equal(m.layoutPrefs(m.profiles[1].defaults).fontSize,25);
 window.screen={width:915,height:412};assert.equal(m.layoutPrefs(m.profiles[1].defaults).fontSize,25);
+const preset=m.profiles[1].defaults;
+assert.equal(preset.font,'original');assert.equal(preset.originalLineHeight,true);assert.equal(preset.publisher,true);assert.equal(preset.align,'original');
+const oldPreset={...preset,font:'sans',originalLineHeight:undefined,publisher:false,align:'start',theme:'night',margin:24,fontSize:9};
+const updated=m.migrateState({readerSettingsVersion:2,profiles:{ridi:{...oldPreset}},books:{a:{notes}}});
+assert.equal(updated.profiles.ridi.font,'original');assert.equal(updated.profiles.ridi.originalLineHeight,true);assert.equal(updated.profiles.ridi.publisher,true);
+assert.equal(updated.profiles.ridi.theme,'night');assert.equal(updated.profiles.ridi.margin,24);assert.equal(updated.profiles.ridi.fontSize,9);assert.deepEqual(updated.books.a.notes,notes);
+const manual={...oldPreset,font:'ridi',lineHeight:1.8,spacing:.5,align:'justify'};
+const preserved=m.migrateState({readerSettingsVersion:2,profiles:{ridi:manual}}).profiles.ridi;
+assert.equal(preserved.font,'ridi');assert.equal(preserved.lineHeight,1.8);assert.equal(preserved.spacing,.5);assert.equal(preserved.align,'justify');assert.equal(preserved.publisher,false);assert.equal(preserved.originalLineHeight,false);
+const stable=JSON.stringify(updated);m.migrateState(updated);assert.equal(JSON.stringify(updated),stable);
 console.log('PASS reader IDs, unit migration, custom settings, notes/positions/fonts preservation, idempotence, all shared palettes, RIDI phone/tablet sizes and orientation stability');
