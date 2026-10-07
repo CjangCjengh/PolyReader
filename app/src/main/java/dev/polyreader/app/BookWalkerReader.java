@@ -34,6 +34,8 @@ final class BookWalkerReader {
     private final android.graphics.RectF selectionBar=new android.graphics.RectF();
     private int selectionRevision;
     private boolean hasSelection,selectionTap;
+    private final android.graphics.RectF[] handleHits={new android.graphics.RectF(),new android.graphics.RectF()};
+    private boolean draggingHandle;
     private float touchX,touchY;
     private long touchTime;
     BookWalkerReader(MainActivity host, FrameLayout root) { this.host=host;this.root=root; }
@@ -87,6 +89,8 @@ final class BookWalkerReader {
         token=args.getString("token");initialize();
         page=cls("com.access_company.bookreader.BookPageView").getConstructor(Context.class,android.util.AttributeSet.class).newInstance(context,null);
         root.addView((View)page,0,new FrameLayout.LayoutParams(-1,-1));
+        call(page,"setStartSelectionHandle",selectionHandle(true));
+        call(page,"setEndSelectionHandle",selectionHandle(false));
         call(page,"setViewerErrorListener",listener("a1.I",(p,m,a)->{emit("error",String.valueOf(a[0]));return null;}));
         call(page,"setPageChangeListener",listener("com.access_company.bookreader.C",(p,m,a)->{ui.post(this::position);return null;}));
         call(page,"setTapEventListener",listener("com.access_company.bookreader.L",(p,m,a)->{
@@ -115,6 +119,30 @@ final class BookWalkerReader {
         ui.postDelayed(this::position,1200);
     }
     private String normalize(String uri){return uri.startsWith("epubcfi(")?"#"+uri:uri;}
+    private Object selectionHandle(boolean start)throws Exception {
+        float density=host.getResources().getDisplayMetrics().density,radius=7*density;
+        android.graphics.Paint paint=new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        return listener("a1.D",(proxy,method,args)->{
+            if(closed||page==null)return method.getName().equals("b")?false:null;
+            Object parameters=args[1];
+            android.graphics.RectF caret=(android.graphics.RectF)call(parameters,"b");
+            boolean vertical=caret.width()>caret.height();
+            float x=(vertical?(start?caret.right:caret.left):(start?caret.left:caret.right))+(start?(vertical?1:-1):(vertical?-1:1))*radius*.7f;
+            float y=(start?caret.top:caret.bottom)+(start?-1:1)*radius*.7f;
+            x=Math.max(radius,Math.min(((View)page).getWidth()-radius,x));
+            y=Math.max(radius,Math.min(((View)page).getHeight()-radius,y));
+            android.graphics.RectF hit=handleHits[start?0:1];hit.set(x-22*density,y-22*density,x+22*density,y+22*density);
+            if(method.getName().equals("b")){
+                android.graphics.PointF p=(android.graphics.PointF)args[0];
+                android.graphics.RectF other=handleHits[start?1:0];
+                return hit.contains(p.x,p.y)&&(!other.contains(p.x,p.y)||Math.hypot(p.x-hit.centerX(),p.y-hit.centerY())<=Math.hypot(p.x-other.centerX(),p.y-other.centerY()));
+            }
+            android.graphics.Canvas canvas=(android.graphics.Canvas)args[0];
+            paint.setColor(Color.WHITE);canvas.drawCircle(x,y,radius+density,paint);
+            paint.setColor(0xff2684c5);canvas.drawCircle(x,y,radius,paint);
+            return null;
+        });
+    }
     void settings(JSONObject p,boolean refresh)throws Exception {
         preferences=p;
         Object c=call(page,"getConfiguration");
@@ -154,7 +182,7 @@ final class BookWalkerReader {
             }catch(Exception e){error(e);}}));
         }catch(Exception e){error(e);}
     }
-    private void selectionEnded(){if(activeSelectionCfi!=null){activeSelectionCfi=null;if(!closed)try{annotate(annotations);}catch(Exception e){error(e);}}hasSelection=false;++selectionRevision;selectionBar.setEmpty();emit("selection",JSONObject.NULL);}
+    private void selectionEnded(){if(activeSelectionCfi!=null){activeSelectionCfi=null;if(!closed)try{annotate(annotations);}catch(Exception e){error(e);}}hasSelection=false;draggingHandle=false;for(android.graphics.RectF hit:handleHits)hit.setEmpty();++selectionRevision;selectionBar.setEmpty();emit("selection",JSONObject.NULL);}
     void clearSelection()throws Exception{selectionEnded();if(page!=null)call(page,"q0");}
     void annotate(JSONArray notes)throws Exception{
         annotations=notes;ArrayList<Object> marks=new ArrayList<>();Set<String> next=new HashSet<>();
@@ -190,15 +218,19 @@ final class BookWalkerReader {
     private boolean inChrome(float x,float y){if(!menus)return false;for(android.graphics.RectF r:chromeBounds)if(r.contains(x,y))return true;return false;}
     boolean route(MotionEvent e){
         if(e.getActionMasked()==MotionEvent.ACTION_DOWN){
-            routeGesture=!closed&&!modal&&page!=null&&!selectionBar.contains(e.getX(),e.getY())&&!inChrome(e.getX(),e.getY());
+            draggingHandle=hasSelection&&(handleHits[0].contains(e.getX(),e.getY())||handleHits[1].contains(e.getX(),e.getY()));
+            routeGesture=!closed&&!modal&&page!=null&&(draggingHandle||!selectionBar.contains(e.getX(),e.getY()))&&!inChrome(e.getX(),e.getY());
             selectionTap=hasSelection;touchX=e.getX();touchY=e.getY();touchTime=e.getEventTime();
+            if(draggingHandle&&routeGesture)emit("selectionDragging",true);
         }
         if(!routeGesture||closed||page==null)return false;
-        if(e.getActionMasked()==MotionEvent.ACTION_UP&&selectionTap&&hasSelection&&e.getEventTime()-touchTime<350&&Math.hypot(e.getX()-touchX,e.getY()-touchY)<ViewConfiguration.get(host).getScaledTouchSlop()){
+        if(e.getActionMasked()==MotionEvent.ACTION_UP&&!draggingHandle&&selectionTap&&hasSelection&&e.getEventTime()-touchTime<350&&Math.hypot(e.getX()-touchX,e.getY()-touchY)<ViewConfiguration.get(host).getScaledTouchSlop()){
             MotionEvent cancel=MotionEvent.obtain(e);cancel.setAction(MotionEvent.ACTION_CANCEL);((View)page).dispatchTouchEvent(cancel);cancel.recycle();
             try{clearSelection();}catch(Exception ex){error(ex);}return true;
         }
-        ((View)page).dispatchTouchEvent(e);return true;
+        ((View)page).dispatchTouchEvent(e);
+        if(draggingHandle&&(e.getActionMasked()==MotionEvent.ACTION_UP||e.getActionMasked()==MotionEvent.ACTION_CANCEL)){draggingHandle=false;emit("selectionDragging",false);}
+        return true;
     }
     void close(){closed=true;ui.removeCallbacksAndMessages(null);if(page!=null){try{call(page,"n0");}catch(Exception ignored){}root.removeView((View)page);page=null;}}
 }

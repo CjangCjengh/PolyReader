@@ -61,6 +61,8 @@ export function contentCSS(p,customFont){
  html:has(body[data-poly-image]){writing-mode:horizontal-tb!important;-webkit-writing-mode:horizontal-tb!important}
  body[data-poly-image]{text-align:center!important}body[data-poly-image]>div{height:100%!important;text-align:center!important}body[data-poly-image] img,body[data-poly-image] svg{display:block;margin:auto!important;object-fit:contain!important}
  img,svg{max-width:100%;max-height:100%;object-fit:contain}a{color:inherit}pre{white-space:pre-wrap}ruby{ruby-position:over}rt{font-size:0.5em}${p.ruby?'':'rt,rp{display:none!important}'}
- ::selection{background:${selectionStyle(p).background};color:${selectionStyle(p).foreground}}mark{background:${highlightStyle(p).background}!important;color:${fg}!important}
+ ::selection{background:${selectionStyle(p).background};color:${selectionStyle(p).foreground}}
+ ::highlight(polyreader_selection){background:${selectionStyle(p).background};color:${selectionStyle(p).foreground}}
+ mark{background:${highlightStyle(p).background}!important;color:${fg}!important}
  `;
 }

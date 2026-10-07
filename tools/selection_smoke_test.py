@@ -6,9 +6,9 @@ exec(Path(__file__).with_name('native_smoke_test.py').read_text(encoding='utf-8'
 
 root=Path(__file__).resolve().parents[1]
 fixtures=json.loads((root/'work/selection-fixtures.json').read_text(encoding='utf-8'))
-work=root/'work'/('emu043' if serial.startswith('127.') else 'phone043');work.mkdir(exist_ok=True)
+work=root/'work'/('emu044' if serial.startswith('127.') else 'phone044');work.mkdir(exist_ok=True)
 results=[];original=json.dumps(wait_js('window.polyReader?.state'),ensure_ascii=False)
-report={'version':'0.4.3','checks':results,'passed':False}
+report={'version':'0.4.4','checks':results,'passed':False}
 
 def tap(id):
     xy=js("(()=>{const r=document.getElementById("+json.dumps(id)+").getBoundingClientRect();return [Math.round((r.x+r.width/2)*devicePixelRatio),Math.round((r.y+r.height/2)*devicePixelRatio)]})()")
@@ -60,7 +60,7 @@ try:
             adb('shell','uiautomator','dump','/sdcard/polyreader-selection-ui.xml')
             ui=ET.fromstring(adb('exec-out','cat','/sdcard/polyreader-selection-ui.xml'))
             check('RIDI system selection toolbar stays hidden',not any('floating_toolbar' in n.get('resource-id','') or 'floating_popup' in n.get('resource-id','') for n in ui.iter('node')))
-            check('RIDI DOM selection remains active',js('!polyReader.engine.doc.getSelection().isCollapsed'))
+            check('RIDI custom selection remains active',js("!!polyReader.engine.doc.polySelection?.range && polyReader.engine.doc.defaultView.CSS.highlights.has('polyreader_selection')"))
         tap('selection-close');time.sleep(.6)
         check(reader+' cancel stays dismissed',js("document.getElementById('selection-bar').hidden"))
         select(reader);before=js('polyReader.engine.location.cfi')
@@ -86,7 +86,7 @@ try:
         js('polyReader.engine.annotate(polyReader.state.books[polyReader.active.id].notes)')
         check(reader+' theme keeps annotation data intact',js("polyReader.state.books[polyReader.active.id].notes.findLast(n=>n.note==='selection-regression').color")==note['color'])
         select(reader);image=shot(reader+'-selection-night.png')
-        box=js("(()=>{if(polyReader.profile.id==='bookwalker')return window._nativeSelection.rect;const r=polyReader.engine.doc.getSelection().getRangeAt(0).getBoundingClientRect();return [r.left,r.top,r.right,r.bottom].map(n=>n*devicePixelRatio)})()")
+        box=js("(()=>{if(polyReader.profile.id==='bookwalker')return window._nativeSelection.rect;const r=polyReader.engine.doc.polySelection.range.getBoundingClientRect();return [r.left,r.top,r.right,r.bottom].map(n=>n*devicePixelRatio)})()")
         colors=image.crop(tuple(round(n) for n in box)).getcolors(image.width*image.height)
         count=lambda rgb:sum(n for n,c in colors if max(abs(a-b) for a,b in zip(rgb,c))<7)
         check(reader+' night selection uses a dark blue background',count((41,70,94))>80)

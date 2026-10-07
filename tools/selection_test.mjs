@@ -3,11 +3,11 @@ import {selectionPopup} from '../app/src/main/assets/app/selection.js';
 import {highlightStyle,highlightColors,selectionStyle} from '../app/src/main/assets/app/profiles.js';
 const bounds={left:12,right:400,top:62,bottom:850},size={width:278,height:56};
 const middle={left:190,right:220,top:300,bottom:350};
-assert.deepEqual(selectionPopup([middle],bounds,size),{x:66,y:232});
+assert.deepEqual(selectionPopup([middle],bounds,size),{x:66,y:224});
 const upper={left:15,right:38,top:70,bottom:105};
-assert.deepEqual(selectionPopup([upper],bounds,size),{x:12,y:117});
+assert.deepEqual(selectionPopup([upper],bounds,size),{x:12,y:125});
 assert.equal(selectionPopup([{left:-40,right:-20,top:90,bottom:130}],bounds,size),null);
-assert.equal(selectionPopup([middle,{left:210,right:280,top:610,bottom:640}],bounds,size,{x:240,y:622}).y,542);
+assert.equal(selectionPopup([middle,{left:210,right:280,top:610,bottom:640}],bounds,size,{x:240,y:622}).y,534);
 for(const r of [middle,upper,{left:385,right:410,top:800,bottom:839}]){
  const p=selectionPopup([r],bounds,size);assert(p.x>=bounds.left&&p.x+size.width<=bounds.right&&p.y>=bounds.top&&p.y+size.height<=bounds.bottom);
 }

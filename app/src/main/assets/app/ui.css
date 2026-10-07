@@ -61,4 +61,6 @@ body.dark-reader .progress-row input[type=range]::-webkit-slider-runnable-track{
 
 #selection-bar{left:0;top:0;bottom:auto;transform:none;max-width:calc(100vw - 24px);padding:3px;user-select:none;-webkit-user-select:none;touch-action:manipulation;overflow:hidden}
 #selection-bar button{font-size:17px;line-height:1.3;padding:12px 13px;min-height:48px;border-radius:8px}
+.selection-handle{position:fixed;z-index:9;width:44px;height:44px;min-height:44px;padding:0;border:0;background:transparent;touch-action:none;user-select:none;-webkit-user-select:none;transform:translate(-50%,-50%)}
+.selection-handle::after{content:"";position:absolute;left:14px;top:14px;width:16px;height:16px;box-sizing:border-box;border:1px solid white;border-radius:50%;background:#2684c5}
 .bookmark-action{margin:0 0 14px}

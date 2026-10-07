@@ -7,8 +7,8 @@ android {
         applicationId = "dev.polyreader.app"
         minSdk = 29
         targetSdk = 34
-        versionCode = 8
-        versionName = "0.4.3"
+        versionCode = 9
+        versionName = "0.4.4"
     }
     buildTypes { getByName("release") { isMinifyEnabled = false } }
     packaging { jniLibs { useLegacyPackaging = true } }

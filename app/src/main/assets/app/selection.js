@@ -7,7 +7,7 @@ export function selectionPopup(rects,bounds,size,anchor){
  const distance=r=>anchor?Math.hypot(clamp(anchor.x,r.left,r.right)-anchor.x,clamp(anchor.y,r.top,r.bottom)-anchor.y):0;
  const r=visible.reduce((best,r)=>distance(r)<distance(best)?r:best);
  const x=clamp((r.left+r.right-size.width)/2,bounds.left,Math.max(bounds.left,bounds.right-size.width));
- const above=r.top-size.height-12,below=r.bottom+12;
+ const above=r.top-size.height-20,below=r.bottom+20;
  const y=above>=bounds.top?above:below+size.height<=bounds.bottom?below:clamp(above,bounds.top,bounds.bottom-size.height);
  return {x,y};
 }

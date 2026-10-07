@@ -34,6 +34,7 @@ public final class MainActivity extends Activity {
     private volatile boolean volumePaging;
     private boolean fullscreen;
     private boolean reading;
+    private ActionMode readerSelectionMode;
     private String exportText = "";
 
     @Override public void onCreate(Bundle saved) {
@@ -90,13 +91,13 @@ public final class MainActivity extends Activity {
     private ActionMode.Callback2 readerActions(ActionMode.Callback original) {
         return new ActionMode.Callback2() {
             @Override public boolean onCreateActionMode(ActionMode mode,Menu menu) {
-                original.onCreateActionMode(mode,menu);menu.clear();return true;
+                original.onCreateActionMode(mode,menu);menu.clear();readerSelectionMode=mode;return true;
             }
             @Override public boolean onPrepareActionMode(ActionMode mode,Menu menu) {
                 original.onPrepareActionMode(mode,menu);menu.clear();return true;
             }
             @Override public boolean onActionItemClicked(ActionMode mode,MenuItem item){return false;}
-            @Override public void onDestroyActionMode(ActionMode mode){original.onDestroyActionMode(mode);}
+            @Override public void onDestroyActionMode(ActionMode mode){if(readerSelectionMode==mode)readerSelectionMode=null;original.onDestroyActionMode(mode);}
             @Override public void onGetContentRect(ActionMode mode,View view,android.graphics.Rect rect){
                 if(original instanceof ActionMode.Callback2)((ActionMode.Callback2)original).onGetContentRect(mode,view,rect);
                 else super.onGetContentRect(mode,view,rect);
@@ -286,6 +287,7 @@ public final class MainActivity extends Activity {
             case "bwTurn": if(nativeReader!=null)nativeReader.turn(o.getInt("direction"));break;
             case "bwAnnotate": if(nativeReader!=null)nativeReader.annotate(o.getJSONArray("notes"));break;
             case "bwClearSelection": if(nativeReader!=null)nativeReader.clearSelection();break;
+            case "finishTextSelection": if(readerSelectionMode!=null)readerSelectionMode.finish();break;
             case "bwUi": if(nativeReader!=null){nativeReader.setModal(o.optBoolean("modal"));nativeReader.setSelectionBar(o.optJSONArray("selectionRect"));nativeReader.setChrome(o.optBoolean("chrome"),o.optJSONArray("chromeRects"));}break;
             case "exit": finish();break;
             case "import": choose(false); break;
