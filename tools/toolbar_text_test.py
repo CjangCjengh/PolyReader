@@ -22,7 +22,7 @@ try:
         tap('style-button');check(reader+' physical style button opens font controls',js("!document.querySelector('#panel').hidden && !!document.querySelector('#pref-fontSize')"))
         tap('panel-close');js('polyReader.setChrome(true)');tap('settings-button');check(reader+' physical settings button opens operation controls',js("!!document.querySelector('#pref-volume')"))
         tap('panel-close');js('polyReader.setChrome(true)');tap('reader-more')
-        check(reader+' selection actions',js("[...document.querySelectorAll('#selection-bar button')].map(x=>x.textContent).join('|')==='复制|高亮 / 笔记|取消'"))
+        check(reader+' selection actions',js("[...document.querySelectorAll('#selection-bar button')].map(x=>x.textContent).join('|')==='复制|高亮|取消'"))
         tap('panel-close');js('polyReader.setChrome(false)')
     check('No empty-shelf import instruction',js("!document.querySelector('#empty').textContent.trim()"))
     fixture=js("polyReader.library.find(x=>x.filename==='PolyReader-04.txt')")

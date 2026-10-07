@@ -15,16 +15,52 @@ export class TextSelection {
  }
  clear(){this.range=null;this.doc.defaultView.CSS?.highlights?.delete('polyreader_selection');this.doc.getSelection()?.removeAllRanges();}
  endpoint(start){
-  const r=this.range.cloneRange();r.collapse(start);
-  const box=r.getClientRects()[0]||r.getBoundingClientRect();
-  const el=r.startContainer.nodeType===1?r.startContainer:r.startContainer.parentElement;
+  // A collapsed range can land in a hidden publisher span or on the next line.
+  // Measure the first/last painted character inside the range instead.
+  const nodes=[],walker=this.doc.createTreeWalker(this.range.commonAncestorContainer,4);
+  if(this.range.commonAncestorContainer.nodeType===3)nodes.push(this.range.commonAncestorContainer);
+  else {let n;while(n=walker.nextNode())if(this.range.intersectsNode(n))nodes.push(n);}
+  if(!start)nodes.reverse();
+  let box,el;
+  outer:for(const n of nodes){
+   el=n.parentElement;const style=this.doc.defaultView.getComputedStyle(el);
+   if(el.closest('script,style,rt,rp')||style.visibility!=='visible'||+style.opacity===0||parseFloat(style.fontSize)<2)continue;
+   const lo=n===this.range.startContainer?this.range.startOffset:0,hi=n===this.range.endContainer?this.range.endOffset:n.length;
+   const chars=[...n.textContent.slice(lo,hi)];let offset=start?lo:hi;
+   if(!start)chars.reverse();
+   for(const char of chars){
+    const a=start?offset:offset-char.length;offset+=start?char.length:-char.length;
+    if(/[\s\u200b-\u200f\u202a-\u202e\u2060-\u206f]/u.test(char))continue;
+    const r=this.doc.createRange();r.setStart(n,a);r.setEnd(n,a+char.length);
+    box=[...r.getClientRects()].find(b=>b.width>1&&b.height>1);
+    if(box)break outer;
+   }
+  }
+  if(!box)return null;
   const vertical=this.doc.defaultView.getComputedStyle(el).writingMode.startsWith('vertical');
+  const rtl=this.doc.defaultView.getComputedStyle(el).direction==='rtl';
   const frame=this.doc.defaultView.frameElement.getBoundingClientRect();
-  const caret={x:frame.left+(vertical?box.left+box.width/2:box.left),y:frame.top+(vertical?box.top:box.top+box.height/2)};
-  return {caret,x:frame.left+(vertical?(start?box.right:box.left):(start?box.left:box.right))+(start?(vertical?1:-1):(vertical?-1:1))*4.9,
-   y:frame.top+(start?box.top:box.bottom)+(start?-4.9:4.9)};
+  const edge=start!==rtl?box.left:box.right;
+  const caret={x:frame.left+(vertical?(box.left+box.right)/2:edge),y:frame.top+(vertical?(start?box.top:box.bottom):(box.top+box.bottom)/2)};
+  const anchor={x:frame.left+(vertical?box.right:edge),y:frame.top+(vertical?(start?box.top:box.bottom):box.bottom)};
+  return {caret,vertical,box:{left:box.left+frame.left,right:box.right+frame.left,top:box.top+frame.top,bottom:box.bottom+frame.top},
+   corner:vertical?(start?'bottom-left':'top-left'):(start!==rtl?'top-right':'top-left'),
+   x:anchor.x+(vertical?10:(start!==rtl?-10:10)),y:anchor.y+(vertical&&start?-10:10)};
  }
- move(fixed,x,y){
+ begin(start,x,y){
+  const p=this.endpoint(start);if(!p)return null;
+  const fixed=this.range.cloneRange();fixed.collapse(!start);
+  return {fixed,start,vertical:p.vertical,band:p.box,point:p.caret,dx:x-p.caret.x,dy:y-p.caret.y};
+ }
+ move(drag,x,y){
+  const {fixed,vertical,band}=drag;x-=drag.dx;y-=drag.dy;
+  const low=vertical?band.left:band.top,high=vertical?band.right:band.bottom,pad=(high-low)*.2;
+  const cross=vertical?x:y;
+  if(cross>=low-pad&&cross<=high+pad){if(vertical)x=(low+high)/2;else y=(low+high)/2;}
+  // Do not re-hit-test an unchanged caret: invisible publisher characters can
+  // give the same painted position several different DOM boundaries.
+  if(Math.hypot(x-drag.point.x,y-drag.point.y)<.5)return false;
+  drag.point={x,y};
   const frame=this.doc.defaultView.frameElement.getBoundingClientRect();
   const point=this.doc.caretRangeFromPoint(Math.max(1,Math.min(frame.width-1,x-frame.left)),Math.max(1,Math.min(frame.height-1,y-frame.top)));
   if(!point||!this.doc.body.contains(point.startContainer))return false;
@@ -34,6 +70,8 @@ export class TextSelection {
   const first=before?point:fixed,last=before?fixed:point;
   next.setStart(first.startContainer,first.startOffset);next.setEnd(last.startContainer,last.startOffset);
   if(!next.toString().trim())return false;
-  this.set(next);return !!this.text.trim();
+  this.set(next);drag.start=before;
+  const p=this.endpoint(before);if(p)drag.band=p.box;
+  return !!this.text.trim();
  }
 }

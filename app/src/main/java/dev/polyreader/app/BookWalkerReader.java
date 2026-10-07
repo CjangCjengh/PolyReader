@@ -36,6 +36,11 @@ final class BookWalkerReader {
     private boolean hasSelection,selectionTap;
     private final android.graphics.RectF[] handleHits={new android.graphics.RectF(),new android.graphics.RectF()};
     private boolean draggingHandle;
+    private final android.graphics.RectF[] handleCarets={new android.graphics.RectF(),new android.graphics.RectF()};
+    private final android.graphics.RectF[] handleShapes={new android.graphics.RectF(),new android.graphics.RectF()};
+    private int draggedHandle;
+    private boolean dragVertical;
+    private float dragOriginCross;
     private float touchX,touchY;
     private long touchTime;
     BookWalkerReader(MainActivity host, FrameLayout root) { this.host=host;this.root=root; }
@@ -119,29 +124,44 @@ final class BookWalkerReader {
         ui.postDelayed(this::position,1200);
     }
     private String normalize(String uri){return uri.startsWith("epubcfi(")?"#"+uri:uri;}
+    private void handleGeometry(boolean start,android.graphics.RectF caret){
+        int index=start?0:1;handleCarets[index].set(caret);
+        float density=host.getResources().getDisplayMetrics().density,size=20*density;
+        boolean vertical=caret.width()>caret.height();
+        float x=vertical?caret.right:(start?caret.left-size:caret.right);
+        float y=vertical?(start?caret.top-size:caret.bottom):caret.bottom;
+        android.graphics.RectF shape=handleShapes[index];shape.set(x,y,x+size,y+size);
+        handleHits[index].set(shape.centerX()-22*density,shape.centerY()-22*density,shape.centerX()+22*density,shape.centerY()+22*density);
+    }
     private Object selectionHandle(boolean start)throws Exception {
-        float density=host.getResources().getDisplayMetrics().density,radius=7*density;
-        android.graphics.Paint paint=new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        float density=host.getResources().getDisplayMetrics().density,radius=10*density;
+        android.graphics.Paint paint=new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);paint.setColor(0xff2684c5);
         return listener("a1.D",(proxy,method,args)->{
             if(closed||page==null)return method.getName().equals("b")?false:null;
-            Object parameters=args[1];
-            android.graphics.RectF caret=(android.graphics.RectF)call(parameters,"b");
-            boolean vertical=caret.width()>caret.height();
-            float x=(vertical?(start?caret.right:caret.left):(start?caret.left:caret.right))+(start?(vertical?1:-1):(vertical?-1:1))*radius*.7f;
-            float y=(start?caret.top:caret.bottom)+(start?-1:1)*radius*.7f;
-            x=Math.max(radius,Math.min(((View)page).getWidth()-radius,x));
-            y=Math.max(radius,Math.min(((View)page).getHeight()-radius,y));
-            android.graphics.RectF hit=handleHits[start?0:1];hit.set(x-22*density,y-22*density,x+22*density,y+22*density);
+            android.graphics.RectF caret=(android.graphics.RectF)call(args[1],"b");
+            handleGeometry(start,caret);
+            android.graphics.RectF hit=handleHits[start?0:1];
             if(method.getName().equals("b")){
                 android.graphics.PointF p=(android.graphics.PointF)args[0];
                 android.graphics.RectF other=handleHits[start?1:0];
                 return hit.contains(p.x,p.y)&&(!other.contains(p.x,p.y)||Math.hypot(p.x-hit.centerX(),p.y-hit.centerY())<=Math.hypot(p.x-other.centerX(),p.y-other.centerY()));
             }
-            android.graphics.Canvas canvas=(android.graphics.Canvas)args[0];
-            paint.setColor(Color.WHITE);canvas.drawCircle(x,y,radius+density,paint);
-            paint.setColor(0xff2684c5);canvas.drawCircle(x,y,radius,paint);
+            float[] corners={radius,radius,radius,radius,radius,radius,radius,radius};
+            int sharp=caret.width()>caret.height()?(start?6:0):(start?2:0);corners[sharp]=corners[sharp+1]=0;
+            android.graphics.Path path=new android.graphics.Path();path.addRoundRect(handleShapes[start?0:1],corners,android.graphics.Path.Direction.CW);
+            ((android.graphics.Canvas)args[0]).drawPath(path,paint);
             return null;
         });
+    }
+    private JSONArray selectionHandles()throws Exception {
+        JSONArray result=new JSONArray();
+        for(int i=0;i<2;i++){
+            Field field=page.getClass().getDeclaredField(i==0?"j0":"k0");field.setAccessible(true);
+            Object parameters=field.get(page);if(parameters==null)continue;
+            handleGeometry(i==0,(android.graphics.RectF)call(parameters,"b"));
+            android.graphics.RectF r=handleHits[i];result.put(new JSONArray(new float[]{r.left,r.top,r.right,r.bottom}));
+        }
+        return result;
     }
     void settings(JSONObject p,boolean refresh)throws Exception {
         preferences=p;
@@ -178,7 +198,7 @@ final class BookWalkerReader {
             JSONArray bounds=new JSONArray(new float[]{rect.left,rect.top,rect.right,rect.bottom});
             call(page,"p1",range,callback(text->{try{
                 if(revision!=selectionRevision||!hasSelection)return;
-                JSONObject value=new JSONObject();value.put("cfi",range.toString().replaceFirst("^#",""));value.put("text",String.valueOf(text));value.put("rect",bounds);emit("selection",value);
+                JSONObject value=new JSONObject();value.put("cfi",range.toString().replaceFirst("^#",""));value.put("text",String.valueOf(text));value.put("rect",bounds);value.put("handles",selectionHandles());emit("selection",value);
             }catch(Exception e){error(e);}}));
         }catch(Exception e){error(e);}
     }
@@ -221,14 +241,31 @@ final class BookWalkerReader {
             draggingHandle=hasSelection&&(handleHits[0].contains(e.getX(),e.getY())||handleHits[1].contains(e.getX(),e.getY()));
             routeGesture=!closed&&!modal&&page!=null&&(draggingHandle||!selectionBar.contains(e.getX(),e.getY()))&&!inChrome(e.getX(),e.getY());
             selectionTap=hasSelection;touchX=e.getX();touchY=e.getY();touchTime=e.getEventTime();
-            if(draggingHandle&&routeGesture)emit("selectionDragging",true);
+            if(draggingHandle&&routeGesture){
+                draggedHandle=Math.hypot(e.getX()-handleHits[0].centerX(),e.getY()-handleHits[0].centerY())<=Math.hypot(e.getX()-handleHits[1].centerX(),e.getY()-handleHits[1].centerY())?0:1;
+                android.graphics.RectF caret=handleCarets[draggedHandle];dragVertical=caret.width()>caret.height();dragOriginCross=dragVertical?caret.centerX():caret.centerY();
+                emit("selectionDragging",true);
+            }
         }
         if(!routeGesture||closed||page==null)return false;
         if(e.getActionMasked()==MotionEvent.ACTION_UP&&!draggingHandle&&selectionTap&&hasSelection&&e.getEventTime()-touchTime<350&&Math.hypot(e.getX()-touchX,e.getY()-touchY)<ViewConfiguration.get(host).getScaledTouchSlop()){
             MotionEvent cancel=MotionEvent.obtain(e);cancel.setAction(MotionEvent.ACTION_CANCEL);((View)page).dispatchTouchEvent(cancel);cancel.recycle();
             try{clearSelection();}catch(Exception ex){error(ex);}return true;
         }
-        ((View)page).dispatchTouchEvent(e);
+        MotionEvent forwarded=e;
+        if(draggingHandle&&e.getActionMasked()==MotionEvent.ACTION_MOVE){
+            // The SDK offsets the pointer to the caret. Keep its perpendicular
+            // coordinate inside the current text column/line until it is left.
+            android.graphics.RectF caret=handleCarets[draggedHandle];
+            float low=dragVertical?caret.left:caret.top,high=dragVertical?caret.right:caret.bottom;
+            float delta=dragVertical?e.getX()-touchX:e.getY()-touchY,cross=dragOriginCross+delta;
+            if(cross>=low-(high-low)*.2f&&cross<=high+(high-low)*.2f){
+                float adjusted=(low+high)/2-dragOriginCross;
+                forwarded=MotionEvent.obtain(e);
+                forwarded.setLocation(dragVertical?touchX+adjusted:e.getX(),dragVertical?e.getY():touchY+adjusted);
+            }
+        }
+        ((View)page).dispatchTouchEvent(forwarded);if(forwarded!=e)forwarded.recycle();
         if(draggingHandle&&(e.getActionMasked()==MotionEvent.ACTION_UP||e.getActionMasked()==MotionEvent.ACTION_CANCEL)){draggingHandle=false;emit("selectionDragging",false);}
         return true;
     }

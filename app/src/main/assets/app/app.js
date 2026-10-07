@@ -102,14 +102,15 @@ function selectionRects(s){
 function positionSelection(){
  if(!selection||!active||!$('panel').hidden)return;
  const bar=$('selection-bar'),style=getComputedStyle(document.documentElement),inset=key=>parseFloat(style.getPropertyValue(key))||0;
+ const handles=(selection.handles||[]).map(a=>({left:a[0]/devicePixelRatio,top:a[1]/devicePixelRatio,right:a[2]/devicePixelRatio,bottom:a[3]/devicePixelRatio}));
  for(const [id,start] of [['selection-start',true],['selection-end',false]]){
    const handle=$(id),controller=selection.doc?.polySelection;handle.hidden=!controller?.supported||!controller.range;
-   if(!handle.hidden){const p=controller.endpoint(start);handle.style.left=Math.max(8,Math.min(innerWidth-8,p.x))+'px';handle.style.top=Math.max(8,Math.min(innerHeight-8,p.y))+'px';}
+   if(!handle.hidden){const p=controller.endpoint(start);if(!p){handle.hidden=true;continue;}handle.dataset.corner=p.corner;handle.style.left=p.x+'px';handle.style.top=p.y+'px';handles.push(handle.getBoundingClientRect());}
  }
  if(handleDrag||selectionDragging){bar.hidden=true;syncNativeUI();return;}
  bar.hidden=false;
- const position=selectionPopup(selectionRects(selection),{left:12+inset('--cutout-left'),right:innerWidth-12-inset('--cutout-right'),top:12+inset('--cutout-top'),bottom:innerHeight-12-inset('--toolbar-bottom')},bar.getBoundingClientRect(),selection.anchor);
- if(!position){clearSelection();return;}
+ const position=selectionPopup(selectionRects(selection),{left:12+inset('--cutout-left'),right:innerWidth-12-inset('--cutout-right'),top:12+inset('--cutout-top'),bottom:innerHeight-12-inset('--toolbar-bottom')},bar.getBoundingClientRect(),selection.anchor,handles);
+ if(!position){bar.hidden=true;syncNativeUI();return;}
  bar.style.left=position.x+'px';bar.style.top=position.y+'px';syncNativeUI();
 }
 function showSelection(value){
@@ -198,7 +199,7 @@ async function runSearch(query,status,list){
  }if(token===searchToken)status.textContent=count?`${count}${count===150?'（已达显示上限）':''} 个结果`:'没有找到匹配文字';}catch(e){status.textContent='搜索失败：'+e.message;}
 }
 function more(){const p=showPanel('更多');actionButton(p,'选择阅读器',()=>chooseMode(active));actionButton(p,'跳回书首',()=>{closePanel();engine.go(0).catch(error)});actionButton(p,'关于 PolyReader',about);}
-function about(){const p=showPanel('关于 PolyReader');p.append(node('h3','PolyReader'),node('div','0.4.4','about-version'),node('p','本地 EPUB / TXT 阅读器'),node('p','阅读器：BOOK☆WALKER、RIDI。每个阅读器独立保存字号、主题和操作设置。'));actionButton(p,'组件与许可',async()=>{const q=showPanel('组件与许可');q.append(node('p','BOOK☆WALKER 7.9.2：PUBLUS/MARS 排版内核，字体为リュウミン和ゴシックMB101。相关组件保留原版权。'),node('p','RIDI Reader.js 1.0.61、Foliate JS：MIT；RIDIBatang：SIL OFL 1.1。'));for(const f of ['vendor/ridi/LICENSE','vendor/foliate/LICENSE','fonts/RIDIBatang-LICENSE.txt']){const t=await(await fetch(f)).text();const pre=node('pre',t);pre.style.cssText='white-space:pre-wrap;font:11px/1.6 monospace';q.append(pre)}q.append(node('p','zip.js：BSD-3-Clause；fflate：MIT。相关版权声明保留在对应源文件中。'));});}
+function about(){const p=showPanel('关于 PolyReader');p.append(node('h3','PolyReader'),node('div','0.4.5','about-version'),node('p','本地 EPUB / TXT 阅读器'),node('p','阅读器：BOOK☆WALKER、RIDI。每个阅读器独立保存字号、主题和操作设置。'));actionButton(p,'组件与许可',async()=>{const q=showPanel('组件与许可');q.append(node('p','BOOK☆WALKER 7.9.2：PUBLUS/MARS 排版内核，字体为リュウミン和ゴシックMB101。相关组件保留原版权。'),node('p','RIDI Reader.js 1.0.61、Foliate JS：MIT；RIDIBatang：SIL OFL 1.1。'));for(const f of ['vendor/ridi/LICENSE','vendor/foliate/LICENSE','fonts/RIDIBatang-LICENSE.txt']){const t=await(await fetch(f)).text();const pre=node('pre',t);pre.style.cssText='white-space:pre-wrap;font:11px/1.6 monospace';q.append(pre)}q.append(node('p','zip.js：BSD-3-Clause；fflate：MIT。相关版权声明保留在对应源文件中。'));});}
 
 window.receiveNative=(type,value)=>{
  if(type==='bookwalker'){
@@ -234,12 +235,12 @@ for(const [id,start] of [['selection-start',true],['selection-end',false]]){
  handle.addEventListener('pointerdown',e=>{
    const controller=selection?.doc?.polySelection;if(!controller?.range)return;
    e.preventDefault();handle.setPointerCapture(e.pointerId);
-   const fixed=controller.range.cloneRange();fixed.collapse(!start);
-   const p=controller.endpoint(start);handleDrag={id:e.pointerId,controller,fixed,dx:e.clientX-p.caret.x,dy:e.clientY-p.caret.y};positionSelection();
+   const drag=controller.begin(start,e.clientX,e.clientY);if(!drag)return;
+   handleDrag={id:e.pointerId,controller,drag};positionSelection();
  });
  handle.addEventListener('pointermove',e=>{
    const d=handleDrag;if(!d||d.id!==e.pointerId||!selection)return;e.preventDefault();
-   if(d.controller.move(d.fixed,e.clientX-d.dx,e.clientY-d.dy)){
+   if(d.controller.move(d.drag,e.clientX,e.clientY)){
      const r=d.controller.range;showSelection({...selection,range:r.cloneRange(),text:d.controller.text,cfi:cfiFor(book,selection.index,r),anchor:{x:e.clientX,y:e.clientY}});
    }
  });

@@ -6,9 +6,9 @@ exec(Path(__file__).with_name('native_smoke_test.py').read_text(encoding='utf-8'
 
 root=Path(__file__).resolve().parents[1]
 fixtures=json.loads((root/'work/selection-fixtures.json').read_text(encoding='utf-8'))
-work=root/'work'/('emu044' if serial.startswith('127.') else 'phone044');work.mkdir(exist_ok=True)
+work=root/'work'/('emu045' if serial.startswith('127.') else 'phone045');work.mkdir(exist_ok=True)
 results=[];original=json.dumps(wait_js('window.polyReader?.state'),ensure_ascii=False)
-report={'version':'0.4.4','checks':results,'passed':False}
+report={'version':'0.4.5','checks':results,'passed':False}
 
 def tap(id):
     xy=js("(()=>{const r=document.getElementById("+json.dumps(id)+").getBoundingClientRect();return [Math.round((r.x+r.width/2)*devicePixelRatio),Math.round((r.y+r.height/2)*devicePixelRatio)]})()")
@@ -54,7 +54,7 @@ try:
         distance=max(b['top']-py,py-b['bottom'],0)
         check(reader+' popup follows physical selection',distance<170 and b['left']>=0 and b['right']<=bounds['w'] and b['top']>=0 and b['bottom']<=bounds['h'],{'distance':distance,'font':bounds['font']})
         check(reader+' selection controls are readable',bounds['font']>=17 and b['height']>=48)
-        check(reader+' selection actions',js("[...document.querySelectorAll('#selection-bar button')].map(x=>x.textContent).join('|')")== '复制|高亮 / 笔记|取消')
+        check(reader+' selection actions',js("[...document.querySelectorAll('#selection-bar button')].map(x=>x.textContent).join('|')")== '复制|高亮|取消')
         shot(reader+'-selection.png')
         if reader=='ridi':
             adb('shell','uiautomator','dump','/sdcard/polyreader-selection-ui.xml')
