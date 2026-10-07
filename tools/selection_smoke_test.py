@@ -6,9 +6,9 @@ exec(Path(__file__).with_name('native_smoke_test.py').read_text(encoding='utf-8'
 
 root=Path(__file__).resolve().parents[1]
 fixtures=json.loads((root/'work/selection-fixtures.json').read_text(encoding='utf-8'))
-work=root/'work'/('emu045' if serial.startswith('127.') else 'phone045');work.mkdir(exist_ok=True)
+work=root/'work'/('emu046' if serial.startswith('127.') else 'phone046');work.mkdir(exist_ok=True)
 results=[];original=json.dumps(wait_js('window.polyReader?.state'),ensure_ascii=False)
-report={'version':'0.4.5','checks':results,'passed':False}
+report={'version':'0.4.6','checks':results,'passed':False}
 
 def tap(id):
     xy=js("(()=>{const r=document.getElementById("+json.dumps(id)+").getBoundingClientRect();return [Math.round((r.x+r.width/2)*devicePixelRatio),Math.round((r.y+r.height/2)*devicePixelRatio)]})()")

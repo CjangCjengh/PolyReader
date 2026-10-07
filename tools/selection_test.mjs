@@ -12,8 +12,16 @@ for(const r of [middle,upper,{left:385,right:410,top:800,bottom:839}]){
  const p=selectionPopup([r],bounds,size);assert(p.x>=bounds.left&&p.x+size.width<=bounds.right&&p.y>=bounds.top&&p.y+size.height<=bounds.bottom);
 }
 const intersects=(a,b)=>a.left<b.right&&a.right>b.left&&a.top<b.bottom&&a.bottom>b.top;
+const row={left:96,right:188,top:320,bottom:356},rowHandles=[{left:64,right:108,top:344,bottom:388},{left:176,right:220,top:344,bottom:388}];
+for(const parts of [[row],[{...row,right:140},{...row,left:140}]]){
+ const p=selectionPopup(parts,bounds,{width:186,height:54},null,rowHandles);
+ assert(p.y+54<=row.top-8,'Single-line menu leaves the selected text unobstructed');
+}
+const topRow={...row,top:70,bottom:106},topHandles=rowHandles.map(h=>({...h,top:h.top-250,bottom:h.bottom-250}));
+const below=selectionPopup([topRow],bounds,{width:186,height:54},null,topHandles);
+assert(below.y>=138+4,'Near the top edge, place the menu below the text and handles');
 const tall={left:180,right:260,top:70,bottom:790},ends=[{left:240,right:284,top:140,bottom:184},{left:180,right:224,top:250,bottom:294}];
-const nearby=selectionPopup([tall],bounds,size,null,ends);
+const nearby=selectionPopup([tall],bounds,size,null,ends,true);
 assert(nearby.y<350,'Long vertical selections keep the menu near their handles');
 for(const rects of [[middle],[{left:25,right:380,top:150,bottom:760}],[upper,{left:20,right:350,top:160,bottom:200}]]){
  const handles=[{left:10,right:54,top:rects[0].bottom-12,bottom:rects[0].bottom+32},

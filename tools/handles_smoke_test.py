@@ -27,6 +27,8 @@ try:
         time.sleep(.5);select(reader);initial=selection_value(reader);location=js('polyReader.engine.location.cfi')
         h=handles(reader);check(reader+' shows two handles',len(h)==2)
         check(reader+' menu avoids both handle targets',unobstructed(reader))
+        if reader=='ridi':
+            check('RIDI single-line menu leaves selected text clear',js("(()=>{const c=polyReader.engine.doc.polySelection,rs=(c.ranges||[c.range]).flatMap(r=>[...r.getClientRects()]).filter(r=>r.width>1&&r.height>1),b=document.getElementById('selection-bar').getBoundingClientRect();return rs.every(r=>b.bottom<=r.top||b.top>=r.bottom||b.right<=r.left||b.left>=r.right)})()"))
         for endpoint in [0,1]:
             for sign in [-1,1]:
                 before=selection_value(reader)['text'];h=handles(reader)

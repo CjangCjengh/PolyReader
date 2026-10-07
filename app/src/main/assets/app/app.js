@@ -97,7 +97,7 @@ function clearSelection(clearNative=true){
 function selectionRects(s){
  if(s.native){const [left,top,right,bottom]=s.rect.map(v=>v/devicePixelRatio);return [{left,top,right,bottom}];}
  const frame=s.doc.defaultView.frameElement,bounds=frame?.getBoundingClientRect()||{left:0,top:0};
- return [...s.range.getClientRects()].map(r=>({left:r.left+bounds.left,top:r.top+bounds.top,right:r.right+bounds.left,bottom:r.bottom+bounds.top}));
+ return (s.ranges||[s.range]).flatMap(r=>[...r.getClientRects()]).map(r=>({left:r.left+bounds.left,top:r.top+bounds.top,right:r.right+bounds.left,bottom:r.bottom+bounds.top}));
 }
 function positionSelection(){
  if(!selection||!active||!$('panel').hidden)return;
@@ -109,13 +109,17 @@ function positionSelection(){
  }
  if(handleDrag||selectionDragging){bar.hidden=true;syncNativeUI();return;}
  bar.hidden=false;
- const position=selectionPopup(selectionRects(selection),{left:12+inset('--cutout-left'),right:innerWidth-12-inset('--cutout-right'),top:12+inset('--cutout-top'),bottom:innerHeight-12-inset('--toolbar-bottom')},bar.getBoundingClientRect(),selection.anchor,handles);
+ const position=selectionPopup(selectionRects(selection),{left:12+inset('--cutout-left'),right:innerWidth-12-inset('--cutout-right'),top:12+inset('--cutout-top'),bottom:innerHeight-12-inset('--toolbar-bottom')},bar.getBoundingClientRect(),selection.anchor,handles,prefs().writing==='vertical');
  if(!position){bar.hidden=true;syncNativeUI();return;}
  bar.style.left=position.x+'px';bar.style.top=position.y+'px';syncNativeUI();
 }
 function showSelection(value){
  if(!active||!$('panel').hidden)return;
  selection=value;if(!document.body.classList.contains('chrome-hidden'))setChrome(false);positionSelection();
+}
+function selectionData(controller,index){
+ const ranges=controller.ranges?.map(r=>r.cloneRange());
+ return {text:controller.text,range:controller.range.cloneRange(),ranges,cfi:cfiFor(book,index,controller.range),cfis:ranges?.map(r=>cfiFor(book,index,r))};
 }
 function attachContent(doc,index){
  let touch,anchor,ignoreClickUntil=0,selectionTimer;
@@ -124,7 +128,7 @@ function attachContent(doc,index){
    if(!active||!engine?.contents().some(c=>c.doc===doc))return;
    const s=doc.getSelection();if(!s||s.isCollapsed||!s.toString().trim()){if(!controller.range&&selection?.doc===doc)clearSelection(false);return;}
    const r=s.getRangeAt(0).cloneRange();controller.set(r);
-   showSelection({text:controller.text,cfi:cfiFor(book,index,r),range:r,doc,index,anchor});
+   showSelection({...selectionData(controller,index),doc,index,anchor});
    if(controller.supported)send('finishTextSelection');
  };
  doc.addEventListener('selectionchange',()=>{clearTimeout(selectionTimer);selectionTimer=setTimeout(selected,60)});
@@ -176,10 +180,10 @@ function addBookmark(){if(!engine?.location)return;const bs=bookState(),marked=c
 function notes(){const p=showPanel('书签与笔记'),list=node('ul',null,'item-list');p.append(list);const all=bookState().notes;
  const add=actionButton(p,currentBookmark()?'移除当前位置书签':'添加当前位置书签',()=>{addBookmark();notes()},'panel-action bookmark-action');add.id='bookmark-current';p.prepend(add);
  if(!all.length)p.append(node('p','还没有书签或笔记。'));
- for(const n of all){const li=node('li'),b=node('button');b.append(node('span',n.type==='bookmark'?'♧ '+n.label:n.text),node('small',n.note||new Date(n.time).toLocaleDateString()));b.onclick=()=>{closePanel();engine.go(n.cfi).catch(error)};const del=node('button','×','remove');del.setAttribute('aria-label','删除记录');del.onclick=()=>{bookState().notes=all.filter(x=>x.id!==n.id);save();updateBookmarkButton();if(profile.engine==='foliate'&&n.type==='highlight')engine.view.deleteAnnotation({value:n.cfi});else redrawNotes();notes();};li.append(b,del);list.append(li);}
+ for(const n of all){const li=node('li'),b=node('button');b.append(node('span',n.type==='bookmark'?'♧ '+n.label:n.text),node('small',n.note||new Date(n.time).toLocaleDateString()));b.onclick=()=>{closePanel();engine.go(n.cfi).catch(error)};const del=node('button','×','remove');del.setAttribute('aria-label','删除记录');del.onclick=()=>{bookState().notes=all.filter(x=>x.id!==n.id);save();updateBookmarkButton();if(profile.engine==='foliate'&&n.type==='highlight')(n.cfis||[n.cfi]).forEach(cfi=>engine.view.deleteAnnotation({value:cfi}));else redrawNotes();notes();};li.append(b,del);list.append(li);}
  actionButton(p,'导出这本书的笔记（JSON）',()=>send('export',{text:JSON.stringify({format:'polyreader-notes',version:1,title:caption(active),bookId:active.id,notes:all},null,2)}));
 }
-function editNote(){if(!selection)return;const s=selection,p=showPanel('高亮与笔记');p.append(node('div',s.text,'quote'));let color=highlightColors[0];const colors=node('div',null,'swatches');for(const c of highlightColors){const b=node('button');b.style.backgroundColor=highlightStyle(prefs(),c).background;b.setAttribute('aria-label','选择 '+c);b.classList.toggle('selected',c===color);b.onclick=()=>{color=c;for(const child of colors.children)child.classList.toggle('selected',child===b)};colors.append(b);}p.append(colors);const input=node('textarea');input.placeholder='写下你的想法（可选）';p.append(input);actionButton(p,'保存高亮',()=>{bookState().notes.push({id:Date.now()+'',type:'highlight',cfi:s.cfi,index:s.index,text:s.text,note:input.value,color,time:new Date().toISOString()});save();clearSelection();closePanel();redrawNotes();toast('已保存');},'primary');}
+function editNote(){if(!selection)return;const s=selection,p=showPanel('高亮与笔记');p.append(node('div',s.text,'quote'));let color=highlightColors[0];const colors=node('div',null,'swatches');for(const c of highlightColors){const b=node('button');b.style.backgroundColor=highlightStyle(prefs(),c).background;b.setAttribute('aria-label','选择 '+c);b.classList.toggle('selected',c===color);b.onclick=()=>{color=c;for(const child of colors.children)child.classList.toggle('selected',child===b)};colors.append(b);}p.append(colors);const input=node('textarea');input.placeholder='写下你的想法（可选）';p.append(input);actionButton(p,'保存高亮',()=>{bookState().notes.push({id:Date.now()+'',type:'highlight',cfi:s.cfi,cfis:s.cfis,index:s.index,text:s.text,note:input.value,color,time:new Date().toISOString()});save();clearSelection();closePanel();redrawNotes();toast('已保存');},'primary');}
 function redrawNotes(){if(engine&&active)engine.annotate(bookState().notes||[]).catch(e=>console.warn(e));}
 function searchPanel(){const p=showPanel('全文搜索'),form=node('form',null,'searchbox'),input=node('input'),go=node('button','搜索','primary');input.type='search';input.placeholder='搜索书中内容';input.setAttribute('aria-label','搜索内容');form.append(input,go);p.append(form);const status=node('small'),list=node('ul',null,'item-list');p.append(status,list);form.onsubmit=e=>{e.preventDefault();runSearch(input.value,status,list)};input.focus();}
 async function runSearch(query,status,list){
@@ -199,7 +203,7 @@ async function runSearch(query,status,list){
  }if(token===searchToken)status.textContent=count?`${count}${count===150?'（已达显示上限）':''} 个结果`:'没有找到匹配文字';}catch(e){status.textContent='搜索失败：'+e.message;}
 }
 function more(){const p=showPanel('更多');actionButton(p,'选择阅读器',()=>chooseMode(active));actionButton(p,'跳回书首',()=>{closePanel();engine.go(0).catch(error)});actionButton(p,'关于 PolyReader',about);}
-function about(){const p=showPanel('关于 PolyReader');p.append(node('h3','PolyReader'),node('div','0.4.5','about-version'),node('p','本地 EPUB / TXT 阅读器'),node('p','阅读器：BOOK☆WALKER、RIDI。每个阅读器独立保存字号、主题和操作设置。'));actionButton(p,'组件与许可',async()=>{const q=showPanel('组件与许可');q.append(node('p','BOOK☆WALKER 7.9.2：PUBLUS/MARS 排版内核，字体为リュウミン和ゴシックMB101。相关组件保留原版权。'),node('p','RIDI Reader.js 1.0.61、Foliate JS：MIT；RIDIBatang：SIL OFL 1.1。'));for(const f of ['vendor/ridi/LICENSE','vendor/foliate/LICENSE','fonts/RIDIBatang-LICENSE.txt']){const t=await(await fetch(f)).text();const pre=node('pre',t);pre.style.cssText='white-space:pre-wrap;font:11px/1.6 monospace';q.append(pre)}q.append(node('p','zip.js：BSD-3-Clause；fflate：MIT。相关版权声明保留在对应源文件中。'));});}
+function about(){const p=showPanel('关于 PolyReader');p.append(node('h3','PolyReader'),node('div','0.4.6','about-version'),node('p','本地 EPUB / TXT 阅读器'),node('p','阅读器：BOOK☆WALKER、RIDI。每个阅读器独立保存字号、主题和操作设置。'));actionButton(p,'组件与许可',async()=>{const q=showPanel('组件与许可');q.append(node('p','BOOK☆WALKER 7.9.2：PUBLUS/MARS 排版内核，字体为リュウミン和ゴシックMB101。相关组件保留原版权。'),node('p','RIDI Reader.js 1.0.61、Foliate JS：MIT；RIDIBatang：SIL OFL 1.1。'));for(const f of ['vendor/ridi/LICENSE','vendor/foliate/LICENSE','fonts/RIDIBatang-LICENSE.txt']){const t=await(await fetch(f)).text();const pre=node('pre',t);pre.style.cssText='white-space:pre-wrap;font:11px/1.6 monospace';q.append(pre)}q.append(node('p','zip.js：BSD-3-Clause；fflate：MIT。相关版权声明保留在对应源文件中。'));});}
 
 window.receiveNative=(type,value)=>{
  if(type==='bookwalker'){
@@ -241,7 +245,7 @@ for(const [id,start] of [['selection-start',true],['selection-end',false]]){
  handle.addEventListener('pointermove',e=>{
    const d=handleDrag;if(!d||d.id!==e.pointerId||!selection)return;e.preventDefault();
    if(d.controller.move(d.drag,e.clientX,e.clientY)){
-     const r=d.controller.range;showSelection({...selection,range:r.cloneRange(),text:d.controller.text,cfi:cfiFor(book,selection.index,r),anchor:{x:e.clientX,y:e.clientY}});
+     showSelection({...selection,...selectionData(d.controller,selection.index),anchor:{x:e.clientX,y:e.clientY}});
    }
  });
  const finish=e=>{if(handleDrag?.id===e.pointerId){handleDrag=null;positionSelection();}};

@@ -68,7 +68,7 @@ export class FoliateEngine {
  async turn(direction){await (direction>0?this.view.renderer.next():this.view.renderer.prev());}
  async fraction(value){await this.view.goToFraction(value);}
  contents(){return this.view.renderer.getContents();}
- async annotate(notes){for(const n of notes) if(n.type==='highlight') await this.view.addAnnotation({value:n.cfi,color:n.color});}
+ async annotate(notes){for(const n of notes) if(n.type==='highlight') for(const cfi of n.cfis||[n.cfi])await this.view.addAnnotation({value:cfi,color:n.color});}
  destroy(){this.view.close();this.view.remove();}
 }
 
@@ -177,7 +177,7 @@ export class RidiEngine {
  async annotate(notes){
    const win=this.frame.contentWindow;
    let styles=this.doc.querySelector('style[data-poly="highlights"]');if(!styles){styles=this.doc.createElement('style');styles.dataset.poly='highlights';this.doc.head.append(styles);}styles.textContent='';
-   if(win.CSS?.highlights){win.CSS.highlights.clear();let n=0;for(const note of notes){if(note.type!=='highlight')continue;try{const resolved=this.book.resolveCFI(note.cfi);if(resolved.index!==this.index)continue;const name='poly'+n++,style=highlightStyle(this.prefs,note.color);win.CSS.highlights.set(name,new win.Highlight(resolved.anchor(this.doc)));styles.textContent+=`::highlight(${name}){background-color:${style.background};color:${style.foreground}}`;}catch{}}}
+   if(win.CSS?.highlights){win.CSS.highlights.clear();let n=0;for(const note of notes){if(note.type!=='highlight')continue;try{const ranges=(note.cfis||[note.cfi]).map(cfi=>this.book.resolveCFI(cfi)).filter(r=>r.index===this.index).map(r=>r.anchor(this.doc));if(!ranges.length)continue;const name='poly'+n++,style=highlightStyle(this.prefs,note.color);win.CSS.highlights.set(name,new win.Highlight(...ranges));styles.textContent+=`::highlight(${name}){background-color:${style.background};color:${style.foreground}}`;}catch{}}}
  }
  destroy(){this.destroyed=true;clearTimeout(this.resizeTimer);clearTimeout(this.scrollTimer);this.observer.disconnect();this.frame.remove();}
 }
@@ -210,7 +210,7 @@ export class BookWalkerEngine {
  async turn(direction){window.Native.post(JSON.stringify({action:'bwTurn',direction}));}
  async fraction(value){const[index,part]=this.progress.getSection(value);const doc=await this.book.sections[index].createDocument();const walker=doc.createTreeWalker(doc.body,NodeFilter.SHOW_TEXT);let offset=Math.floor(doc.body.textContent.length*part),node;while(node=walker.nextNode()){if(offset<=node.length)break;offset-=node.length;}if(node){const range=doc.createRange();range.setStart(node,offset);range.collapse(true);await this.go(cfiFor(this.book,index,range));}else await this.go(index);}
  contents(){return this.doc?[{doc:this.doc,index:this.docIndex}]:[];}
- async annotate(notes){window.Native.post(JSON.stringify({action:'bwAnnotate',notes}));}
+ async annotate(notes){window.Native.post(JSON.stringify({action:'bwAnnotate',notes:notes.flatMap(n=>n.cfis?n.cfis.map((cfi,i)=>({...n,id:n.id+'.'+i,cfi})):n)}));}
  destroy(){this.destroyed=true;window.Native.post(JSON.stringify({action:'bwClose'}));document.body.classList.remove('native-reader');}
 }
 export const engineRegistry=new Map([['foliate',FoliateEngine],['ridi',RidiEngine],['bookwalker',BookWalkerEngine]]);

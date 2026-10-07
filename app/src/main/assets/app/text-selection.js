@@ -1,3 +1,4 @@
+import {VisualSelection} from './visual-selection.js';
 // Keep the range in the document; the host owns the handles and action menu.
 export class TextSelection {
  constructor(doc){
@@ -5,6 +6,9 @@ export class TextSelection {
   this.supported=!!(doc.defaultView.CSS?.highlights&&doc.defaultView.Highlight);
  }
  set(range){
+  this.visual=this.supported?VisualSelection.create(this.doc,range):null;
+  if(this.visual){this.applyVisual();return;}
+  this.ranges=null;
   this.range=range.cloneRange();
   if(this.supported){
    // Selection.toString follows rendered text, including publisher visibility rules.
@@ -13,7 +17,12 @@ export class TextSelection {
    this.doc.defaultView.CSS.highlights.set('polyreader_selection',new this.doc.defaultView.Highlight(this.range));
   }else this.text=this.doc.getSelection().toString();
  }
- clear(){this.range=null;this.doc.defaultView.CSS?.highlights?.delete('polyreader_selection');this.doc.getSelection()?.removeAllRanges();}
+ applyVisual(){
+  const v=this.visual;this.range=v.range;this.ranges=v.ranges;this.text=v.text;
+  this.doc.getSelection()?.removeAllRanges();
+  this.doc.defaultView.CSS.highlights.set('polyreader_selection',new this.doc.defaultView.Highlight(...this.ranges));
+ }
+ clear(){this.range=null;this.ranges=null;this.visual=null;this.doc.defaultView.CSS?.highlights?.delete('polyreader_selection');this.doc.getSelection()?.removeAllRanges();}
  endpoint(start){
   // A collapsed range can land in a hidden publisher span or on the next line.
   // Measure the first/last painted character inside the range instead.
@@ -37,8 +46,9 @@ export class TextSelection {
    }
   }
   if(!box)return null;
+  const glyph=this.visual?.endpoint(start);if(glyph){box=glyph.box;el=glyph.node.parentElement;}
   const vertical=this.doc.defaultView.getComputedStyle(el).writingMode.startsWith('vertical');
-  const rtl=this.doc.defaultView.getComputedStyle(el).direction==='rtl';
+  const rtl=glyph?glyph.rtl:this.doc.defaultView.getComputedStyle(el).direction==='rtl';
   const frame=this.doc.defaultView.frameElement.getBoundingClientRect();
   const edge=start!==rtl?box.left:box.right;
   const caret={x:frame.left+(vertical?(box.left+box.right)/2:edge),y:frame.top+(vertical?(start?box.top:box.bottom):(box.top+box.bottom)/2)};
@@ -50,7 +60,7 @@ export class TextSelection {
  begin(start,x,y){
   const p=this.endpoint(start);if(!p)return null;
   const fixed=this.range.cloneRange();fixed.collapse(!start);
-  return {fixed,start,vertical:p.vertical,band:p.box,point:p.caret,dx:x-p.caret.x,dy:y-p.caret.y};
+  return {fixed,visualFixed:this.visual?(start?this.visual.end:this.visual.start):null,start,vertical:p.vertical,band:p.box,point:p.caret,dx:x-p.caret.x,dy:y-p.caret.y};
  }
  move(drag,x,y){
   const {fixed,vertical,band}=drag;x-=drag.dx;y-=drag.dy;
@@ -62,6 +72,13 @@ export class TextSelection {
   if(Math.hypot(x-drag.point.x,y-drag.point.y)<.5)return false;
   drag.point={x,y};
   const frame=this.doc.defaultView.frameElement.getBoundingClientRect();
+  if(this.visual){
+   const boundary=this.visual.boundary(x-frame.left,y-frame.top);
+   if(!this.visual.select(drag.visualFixed,boundary))return false;
+   this.applyVisual();drag.start=boundary<drag.visualFixed;
+   const p=this.endpoint(drag.start);if(p)drag.band=p.box;
+   return !!this.text.trim();
+  }
   const point=this.doc.caretRangeFromPoint(Math.max(1,Math.min(frame.width-1,x-frame.left)),Math.max(1,Math.min(frame.height-1,y-frame.top)));
   if(!point||!this.doc.body.contains(point.startContainer))return false;
   const el=point.startContainer.nodeType===1?point.startContainer:point.startContainer.parentElement;

@@ -29,6 +29,21 @@ checks=js(r"""(async()=>{
   check('Crossing to another line changes the range',c.text!==text);
   const rtl=d.createRange();rtl.selectNodeContents(d.getElementById('rtl'));c.set(rtl);
   check('RTL endpoints use the corresponding visual sides',c.endpoint(true).caret.x>c.endpoint(false).caret.x&&c.endpoint(true).corner==='top-left');
+  d.body.innerHTML='<p id="override">abc\u202efed\u202c<span style="font-size:0">hidden</span></p>';
+  const overridden=d.createRange();overridden.selectNodeContents(d.getElementById('override'));c.set(overridden);
+  check('Directional overrides follow the visible reading order',c.text==='abcdef');
+  const endPoint=c.endpoint(false),grip=c.begin(false,endPoint.x,endPoint.y),letter=c.visual.glyphs.find(g=>g.text==='d');
+  c.move(grip,letter.box.right+grip.dx,(letter.box.top+letter.box.bottom)/2+grip.dy);
+  check('Dragging selects a continuous visual prefix across a reversed run',c.text==='abcd');
+  const contains=(ranges,g)=>ranges.some(r=>r.comparePoint(g.node,g.offset)===0&&r.comparePoint(g.node,g.offset+g.text.length)===0);
+  check('Highlight includes every chosen glyph without selecting following glyphs',c.visual.glyphs.every(g=>contains(c.ranges,g)==='abcd'.includes(g.text)));
+  check('End handle aligns with the last visual glyph',Math.abs(c.endpoint(false).caret.x-letter.box.right)<1);
+  const CFI=await import('./vendor/foliate/epubcfi.js');
+  const restored=c.ranges.map(r=>CFI.toRange(d,CFI.parse(CFI.fromRange(r))));
+  check('Split highlight ranges survive CFI serialization',c.visual.glyphs.every(g=>contains(restored,g)==='abcd'.includes(g.text)));
+  d.body.innerHTML='<p style="width:60px"><span>abc</span> <span>\u202efed\u202c</span></p>';
+  const wrapped=d.createRange();wrapped.selectNodeContents(d.body.firstChild);c.set(wrapped);
+  check('Soft-wrapped word separators survive visual ordering',c.text==='abc def');
   c.clear();check('Clearing removes the painted selection',!d.defaultView.CSS.highlights.has('polyreader_selection'));
   return checks;
  }finally{frame.remove()}
