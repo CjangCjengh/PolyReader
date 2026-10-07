@@ -52,7 +52,7 @@ try:
     js("polyReader.home();(async()=>{const {profiles}=await import('./profiles.js');for(const p of profiles)polyReader.state.profiles[p.id]={...p.defaults,orientation:1};})()")
     check('Grid bookshelf with covers',js("document.querySelectorAll('.book-card img').length>=2 && !document.querySelector('.hero')"))
     check('No book count',js("!document.querySelector('#book-count')"))
-    js("document.querySelector('.book-menu').click();document.querySelector('#panel-body .panel-action').click()")
+    js("document.querySelector('.book-card').dispatchEvent(new KeyboardEvent('keydown',{key:'F10',shiftKey:true}));document.querySelector('#panel-body .panel-action').click()")
     check('Reader picker uses names only',js("Array.from(document.querySelectorAll('.mode-card')).map(x=>x.textContent)")==['BOOK☆WALKER','RIDI'])
     js("document.querySelector('#panel-close').click()")
     check('No persistent page footer',js("!document.querySelector('#page-info')"))
