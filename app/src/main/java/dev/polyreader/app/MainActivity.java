@@ -6,6 +6,7 @@ import android.content.*;
 import android.content.pm.ActivityInfo;
 import android.net.Uri;
 import android.provider.OpenableColumns;
+import android.provider.DocumentsContract;
 import android.database.Cursor;
 import android.util.AtomicFile;
 import android.view.*;
@@ -23,7 +24,7 @@ import java.util.zip.*;
 /** Offline host: all book bytes stay in private storage; only SAF grants are used. */
 public final class MainActivity extends Activity {
     private static final String ORIGIN = "https://appassets.androidplatform.net";
-    private static final int IMPORT_BOOK = 10, IMPORT_FONT = 11, EXPORT_NOTES = 12;
+    private static final int IMPORT_BOOK = 10, IMPORT_FONT = 11, EXPORT_NOTES = 12, DELETE_SOURCE = 13;
     private WebView web;
     private android.widget.FrameLayout root;
     private BookWalkerReader nativeReader;
@@ -36,9 +37,13 @@ public final class MainActivity extends Activity {
     private boolean reading;
     private ActionMode readerSelectionMode;
     private String exportText = "";
+    private String pendingDeleteId;
+    private boolean choosingDeleteSource;
 
     @Override public void onCreate(Bundle saved) {
         super.onCreate(saved);
+        pendingDeleteId=saved==null?null:saved.getString("pendingDeleteId");
+        choosingDeleteSource=pendingDeleteId!=null;
         books = new File(getFilesDir(), "books"); books.mkdirs();
         fonts = new File(getFilesDir(), "fonts"); fonts.mkdirs();
         web = new WebView(this) {
@@ -177,6 +182,7 @@ public final class MainActivity extends Activity {
     private void fail(Throwable e) { event("error", JSONObject.quote(e.getMessage() == null ? e.toString() : e.getMessage())); }
     private void choose(boolean font) {
         Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*");
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
         if (!font) { i.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/epub+zip", "text/plain", "application/octet-stream", "application/zip"}); i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true); }
         startActivityForResult(i, font ? IMPORT_FONT : IMPORT_BOOK);
     }
@@ -216,12 +222,90 @@ public final class MainActivity extends Activity {
                     JSONArray list = new JSONArray(read("library.json", "[]")); boolean found = false;
                     for (int i=0;i<list.length();i++) if (list.getJSONObject(i).optString("id").equals(id)) { found=true;list.put(i,item); }
                     if (!found) list.put(item);
-                    write("library.json", list.toString()); event(open ? "openBook" : "imported", item);
+                    write("library.json", list.toString());
+                    if("content".equals(uri.getScheme())){JSONObject sources=new JSONObject(read("sources.json","{}"));sources.put(id,uri.toString());write("sources.json",sources.toString());}
+                    event(open ? "openBook" : "imported", item);
                 }
             } catch (java.nio.charset.CharacterCodingException e) {try{JSONObject q=new JSONObject();q.put("uri",uri.toString());q.put("filename",displayName(uri));q.put("open",open);event("textEncoding",q);}catch(Exception x){fail(x);}}
             catch (Throwable e) { fail(e); }
             finally { if (tmp != null) tmp.delete();if(converted!=null)converted.delete(); }
         });
+    }
+    private void retainGrant(Uri uri,int flags){
+        int modes=flags&(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        if(modes!=0&&(flags&Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)!=0)
+            try{getContentResolver().takePersistableUriPermission(uri,modes);}catch(SecurityException ignored){}
+    }
+    private boolean canDeleteSource(Uri uri){
+        if(!DocumentsContract.isDocumentUri(this,uri)||checkUriPermission(uri,android.os.Process.myPid(),android.os.Process.myUid(),Intent.FLAG_GRANT_WRITE_URI_PERMISSION)!=android.content.pm.PackageManager.PERMISSION_GRANTED)return false;
+        try(Cursor c=getContentResolver().query(uri,new String[]{DocumentsContract.Document.COLUMN_FLAGS,DocumentsContract.Document.COLUMN_MIME_TYPE},null,null,null)){
+            return c!=null&&c.moveToFirst()&&(c.getLong(0)&DocumentsContract.Document.FLAG_SUPPORTS_DELETE)!=0&&!DocumentsContract.Document.MIME_TYPE_DIR.equals(c.getString(1));
+        }catch(Exception e){return false;}
+    }
+    private void verifySource(String id,Uri uri)throws Exception{
+        MessageDigest sha=MessageDigest.getInstance("SHA-256");long size=0;
+        try(InputStream in=getContentResolver().openInputStream(uri)){
+            if(in==null)throw new IOException("无法读取原文件，书架中的书已保留");
+            byte[] b=new byte[65536];int n;
+            while((n=in.read(b))!=-1){size+=n;if(size>256L*1024*1024)throw new IOException("所选文件与这本书不一致，未删除任何文件");sha.update(b,0,n);}
+        }
+        StringBuilder hex=new StringBuilder();for(byte b:sha.digest())hex.append(String.format(Locale.ROOT,"%02x",b));
+        if(!id.equals(hex.toString()))throw new IOException("所选文件与导入时的内容不一致，未删除任何文件");
+    }
+    private void removeFromLibrary(String id)throws Exception{
+        JSONArray old=new JSONArray(read("library.json","[]")),list=new JSONArray();
+        for(int i=0;i<old.length();i++)if(!old.getJSONObject(i).optString("id").equals(id))list.put(old.get(i));
+        JSONObject sources=new JSONObject(read("sources.json","{}"));String source=sources.optString(id);sources.remove(id);write("sources.json",sources.toString());
+        write("library.json",list.toString());new File(books,id+".epub").delete();
+        event("library",list);
+        boolean stillUsed=false;for(Iterator<String> keys=sources.keys();keys.hasNext();)if(source.equals(sources.optString(keys.next())))stillUsed=true;
+        if(!source.isEmpty()&&!stillUsed)try{for(UriPermission grant:getContentResolver().getPersistedUriPermissions())if(source.equals(grant.getUri().toString()))getContentResolver().releasePersistableUriPermission(grant.getUri(),(grant.isReadPermission()?Intent.FLAG_GRANT_READ_URI_PERMISSION:0)|(grant.isWritePermission()?Intent.FLAG_GRANT_WRITE_URI_PERMISSION:0));}catch(SecurityException ignored){}
+    }
+    private void requestSourceDeletion(String id){
+        if(pendingDeleteId!=null)return;pendingDeleteId=id;
+        io.execute(()->{try{
+            JSONArray list=new JSONArray(read("library.json","[]"));boolean found=false;
+            for(int i=0;i<list.length();i++)if(id.equals(list.getJSONObject(i).optString("id")))found=true;
+            if(!found)throw new IOException("这本书已不在书架中");
+            String stored=new JSONObject(read("sources.json","{}" )).optString(id);
+            Uri uri=stored.isEmpty()?null:Uri.parse(stored);
+            if(uri!=null&&canDeleteSource(uri))prepareSourceDeletion(id,uri);
+            else ui.post(()->chooseSourceFile(id,uri));
+        }catch(Exception e){ui.post(()->pendingDeleteId=null);fail(e);}});
+    }
+    private void chooseSourceFile(String id,Uri initial){
+        if(!id.equals(pendingDeleteId))return;
+        Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+            .putExtra(Intent.EXTRA_MIME_TYPES,new String[]{"application/epub+zip","text/plain","application/octet-stream","application/zip"});
+        if(initial!=null&&DocumentsContract.isDocumentUri(this,initial))intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI,initial);
+        event("notice",JSONObject.quote("请选择要删除的原文件"));
+        try{choosingDeleteSource=true;startActivityForResult(intent,DELETE_SOURCE);}catch(Exception e){choosingDeleteSource=false;pendingDeleteId=null;fail(e);}
+    }
+    // Called on the I/O executor; no file is deleted until the final confirmation.
+    private void prepareSourceDeletion(String id,Uri uri){
+        try{
+            if(!canDeleteSource(uri))throw new IOException("文件提供方未允许删除，书架中的书已保留");
+            verifySource(id,uri);String name=displayName(uri);
+            ui.post(()->{
+                if(!id.equals(pendingDeleteId)||isFinishing()||isDestroyed())return;
+                AlertDialog dialog=new AlertDialog.Builder(this).setTitle("删除原文件")
+                    .setMessage(name+"\n\n将删除原文件和书架中的副本。阅读记录和笔记会保留。此操作无法在 PolyReader 中撤销。")
+                    .setNegativeButton("取消",(d,w)->pendingDeleteId=null)
+                    .setPositiveButton("删除",(d,w)->io.execute(()->{
+                        boolean sourceDeleted=false;
+                        try{
+                            verifySource(id,uri);
+                            if(!DocumentsContract.deleteDocument(getContentResolver(),uri))throw new IOException("原文件未能删除，书架中的书已保留");
+                            sourceDeleted=true;
+                            removeFromLibrary(id);event("notice",JSONObject.quote("已删除原文件并移出书架"));
+                        }catch(Exception e){event("notice",JSONObject.quote(sourceDeleted?"原文件已删除，书架更新失败。请再执行仅从书架移除。":"原文件未能删除，书架中的书已保留。请检查文件权限或是否已移动。"));}
+                        finally{ui.post(()->pendingDeleteId=null);}
+                    })).setOnCancelListener(d->pendingDeleteId=null).create();
+                dialog.setOnShowListener(d->{android.widget.TextView message=dialog.findViewById(android.R.id.message);if(message!=null)message.setTextSize(18);dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextSize(17);dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setTextSize(17);});
+                dialog.show();
+            });
+        }catch(Exception e){ui.post(()->pendingDeleteId=null);fail(e);}
     }
     private JSONObject inspectBook(File f) throws Exception {
         try (ZipFile z = new ZipFile(f)) {
@@ -324,18 +408,26 @@ public final class MainActivity extends Activity {
             case "export": exportText=o.optString("text"); startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/json").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE,"PolyReader-notes.json"),EXPORT_NOTES); break;
             case "delete": {
                 String id=o.optString("id"); if(!id.matches("[a-f0-9]{64}")) return;
-                io.execute(() -> { try { JSONArray old=new JSONArray(read("library.json","[]")),list=new JSONArray(); for(int i=0;i<old.length();i++) if(!old.getJSONObject(i).optString("id").equals(id)) list.put(old.get(i)); write("library.json",list.toString()); new File(books,id+".epub").delete(); event("library",list); } catch(Exception e){fail(e);} }); break;
+                io.execute(() -> { try { removeFromLibrary(id);event("notice",JSONObject.quote("已从书架移除")); } catch(Exception e){fail(e);} }); break;
             }
+            case "deleteSource": {String id=o.optString("id");if(id.matches("[a-f0-9]{64}"))requestSourceDeletion(id);break;}
         }
     }
-    private void handleIntent(Intent intent) { if(Intent.ACTION_VIEW.equals(intent.getAction()) && intent.getData()!=null){ Uri uri=intent.getData(); intent.setData(null); importUri(uri,false,null,true); } }
+    private void handleIntent(Intent intent) { if(Intent.ACTION_VIEW.equals(intent.getAction()) && intent.getData()!=null){ Uri uri=intent.getData();retainGrant(uri,intent.getFlags()); intent.setData(null); importUri(uri,false,null,true); } }
     @Override protected void onNewIntent(Intent i){super.onNewIntent(i);setIntent(i);if(ready)handleIntent(i);}
     @Override protected void onActivityResult(int request,int result,Intent data) {
-        super.onActivityResult(request,result,data); if(result!=RESULT_OK || data==null)return;
+        super.onActivityResult(request,result,data);
+        if(request==DELETE_SOURCE){
+            choosingDeleteSource=false;
+            if(result!=RESULT_OK||data==null||data.getData()==null){pendingDeleteId=null;return;}
+            String id=pendingDeleteId;Uri uri=data.getData();if(id!=null)io.execute(()->prepareSourceDeletion(id,uri));return;
+        }
+        if(result!=RESULT_OK || data==null)return;
         if(request==EXPORT_NOTES){Uri u=data.getData(); String text=exportText;io.execute(()->{try(OutputStream out=getContentResolver().openOutputStream(u)){out.write(text.getBytes(StandardCharsets.UTF_8));event("notice",JSONObject.quote("笔记已导出"));}catch(Exception e){fail(e);}});return;}
-        if(data.getClipData()!=null) for(int i=0;i<data.getClipData().getItemCount();i++)importUri(data.getClipData().getItemAt(i).getUri(),false);
-        else if(data.getData()!=null)importUri(data.getData(),request==IMPORT_FONT);
+        if(data.getClipData()!=null) for(int i=0;i<data.getClipData().getItemCount();i++){Uri uri=data.getClipData().getItemAt(i).getUri();retainGrant(uri,data.getFlags());importUri(uri,false);}
+        else if(data.getData()!=null){retainGrant(data.getData(),data.getFlags());importUri(data.getData(),request==IMPORT_FONT);}
     }
+    @Override protected void onSaveInstanceState(Bundle out){super.onSaveInstanceState(out);if(choosingDeleteSource)out.putString("pendingDeleteId",pendingDeleteId);}
     @Override public void onBackPressed(){if(ready)web.evaluateJavascript("window.onNativeBack()",null);else super.onBackPressed();}
     @Override public boolean onKeyDown(int code,KeyEvent event){if(volumePaging && (code==KeyEvent.KEYCODE_VOLUME_DOWN || code==KeyEvent.KEYCODE_VOLUME_UP)){web.evaluateJavascript("window.nativeTurn("+(code==KeyEvent.KEYCODE_VOLUME_DOWN?1:-1)+")",null);return true;}return super.onKeyDown(code,event);}
     @Override protected void onPause(){super.onPause();if(ready)web.evaluateJavascript("window.clearReaderSelection?.();window.flushState?.()",null);}

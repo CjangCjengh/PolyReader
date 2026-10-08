@@ -53,7 +53,11 @@ function bindBookActions(card,open,menu){
  card.onclick=e=>{if(consumed){e.preventDefault();e.stopPropagation();consumed=false;return;}open();};
  card.onkeydown=e=>{if(e.target!==card)return;if(e.key==='ContextMenu'||(e.shiftKey&&e.key==='F10')){e.preventDefault();consumed=false;show();}else if(e.key==='Enter'||e.key===' '){e.preventDefault();open();}};
 }
-function bookMenu(item){const p=showPanel(caption(item));actionButton(p,'选择阅读器',()=>chooseMode(item));actionButton(p,'从书架移除',()=>{const q=showPanel('从书架移除');q.append(node('p','仅删除应用内的书籍副本；原始 EPUB 不受影响。阅读位置和笔记仍保留，重新导入同一文件可恢复。'));actionButton(q,'移除书籍',()=>{send('delete',{id:item.id});closePanel()},'panel-action danger');});}
+function bookMenu(item){const p=showPanel(caption(item));actionButton(p,'选择阅读器',()=>chooseMode(item));actionButton(p,'移除书籍',()=>{
+ const q=showPanel('移除书籍');q.append(node('p',caption(item)),node('p','仅移出书架会保留原文件；阅读记录和笔记都会保留。'));
+ actionButton(q,'仅从书架移除',()=>{send('delete',{id:item.id});closePanel()});
+ actionButton(q,`同时删除 ${(item.format||'epub').toUpperCase()} 原文件`,()=>{closePanel();send('deleteSource',{id:item.id})},'panel-action danger');
+});}
 function chooseMode(item){const p=showPanel('选择阅读器');
  for(const x of profiles){const b=node('button',null,'mode-card');b.append(node('strong',x.name));b.onclick=()=>{closePanel();openBook(item,x.id)};p.append(b);}
 }
@@ -213,7 +217,7 @@ async function runSearch(query,status,list){
  }if(token===searchToken)status.textContent=count?`${count}${count===150?'（已达显示上限）':''} 个结果`:'没有找到匹配文字';}catch(e){status.textContent='搜索失败：'+e.message;}
 }
 function more(){const p=showPanel('更多');actionButton(p,'选择阅读器',()=>chooseMode(active));actionButton(p,'跳回书首',()=>{closePanel();engine.go(0).catch(error)});actionButton(p,'关于 PolyReader',about);}
-function about(){const p=showPanel('关于 PolyReader');p.append(node('h3','PolyReader'),node('div','0.4.11','about-version'),node('p','本地 EPUB / TXT 阅读器'),node('p','阅读器：BOOK☆WALKER、RIDI、RIDI Thai。每个阅读器独立保存字号、主题和操作设置。'));actionButton(p,'组件与许可',async()=>{const q=showPanel('组件与许可');q.append(node('p','BOOK☆WALKER 7.9.2：PUBLUS/MARS 排版内核，字体为リュウミン和ゴシックMB101。相关组件保留原版权。'),node('p','RIDI Reader.js 1.0.61、Foliate JS：MIT；RIDIBatang：SIL OFL 1.1；Garuda：GPL 2.0 或更新版本（含字体嵌入例外）。'));for(const f of ['vendor/ridi/LICENSE','vendor/foliate/LICENSE','fonts/RIDIBatang-LICENSE.txt','fonts/Garuda-LICENSE.txt']){const t=await(await fetch(f)).text();const pre=node('pre',t);pre.style.cssText='white-space:pre-wrap;font:11px/1.6 monospace';q.append(pre)}q.append(node('p','zip.js：BSD-3-Clause；fflate：MIT。相关版权声明保留在对应源文件中。'));});}
+function about(){const p=showPanel('关于 PolyReader');p.append(node('h3','PolyReader'),node('div','0.4.12','about-version'),node('p','本地 EPUB / TXT 阅读器'),node('p','阅读器：BOOK☆WALKER、RIDI、RIDI Thai。每个阅读器独立保存字号、主题和操作设置。'));actionButton(p,'组件与许可',async()=>{const q=showPanel('组件与许可');q.append(node('p','BOOK☆WALKER 7.9.2：PUBLUS/MARS 排版内核，字体为リュウミン和ゴシックMB101。相关组件保留原版权。'),node('p','RIDI Reader.js 1.0.61、Foliate JS：MIT；RIDIBatang：SIL OFL 1.1；Garuda：GPL 2.0 或更新版本（含字体嵌入例外）。'));for(const f of ['vendor/ridi/LICENSE','vendor/foliate/LICENSE','fonts/RIDIBatang-LICENSE.txt','fonts/Garuda-LICENSE.txt']){const t=await(await fetch(f)).text();const pre=node('pre',t);pre.style.cssText='white-space:pre-wrap;font:11px/1.6 monospace';q.append(pre)}q.append(node('p','zip.js：BSD-3-Clause；fflate：MIT。相关版权声明保留在对应源文件中。'));});}
 
 window.receiveNative=(type,value)=>{
  if(type==='bookwalker'){
