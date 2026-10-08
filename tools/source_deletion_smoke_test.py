@@ -33,7 +33,13 @@ def tap(label):
             box=list(map(int,re.findall(r'\d+',nodes[-1].get('bounds'))));adb('shell','input','tap',str((box[0]+box[2])//2),str((box[1]+box[3])//2));time.sleep(.4);return
         time.sleep(.3)
     raise AssertionError('UI control not found: '+label)
-def request():js('Native.post(JSON.stringify({action:"deleteSource",id:'+json.dumps(ident)+'}))');time.sleep(.4)
+def options():
+    js('Native.post(JSON.stringify({action:"removeBook",id:'+json.dumps(ident)+'}))');time.sleep(.4)
+    return [n.get('text') for n in tree().iter('node') if n.get('text','').startswith(('仅从书架','同时删除'))]
+
+def request():
+    assert options()==['仅从书架移除','同时删除 EPUB 原文件']
+    tap('同时删除 EPUB 原文件')
 def import_fixture():
     js('polyReader.home();document.getElementById("import-button").click()');tap(name)
     wait_js('polyReader.library.some(b=>b.id==='+json.dumps(ident)+')')
@@ -47,8 +53,8 @@ try:
     import_fixture()
     js('polyReader.state.books['+json.dumps(ident)+']={notes:[{id:"retained-note",note:"Keep this note"}],locations:{}};window.flushState()')
     js("const c=[...document.querySelectorAll('.book-card')].find(c=>c.textContent.includes('Removal test'));c.dispatchEvent(new KeyboardEvent('keydown',{key:'F10',shiftKey:true}));[...document.querySelectorAll('#panel-body button')].find(b=>b.textContent==='移除书籍').click()")
-    assert js("[...document.querySelectorAll('#panel-body button')].map(b=>b.textContent)")==['仅从书架移除','同时删除 EPUB 原文件']
-    js("document.querySelector('#panel-body button').click()")
+    assert [n.get('text') for n in tree().iter('node') if n.get('text','').startswith(('仅从书架','同时删除'))]==['仅从书架移除','同时删除 EPUB 原文件']
+    tap('仅从书架移除')
     wait_js('!polyReader.library.some(b=>b.id==='+json.dumps(ident)+')');assert exists(remote)
     assert js('polyReader.state.books['+json.dumps(ident)+'].notes[0].id')=='retained-note'
     print('PASS shelf-only removal preserves the original file and notes',flush=True)
@@ -61,30 +67,32 @@ try:
     tap('删除');wait_js("document.getElementById('toast').textContent.includes('原文件未能删除')")
     assert listed() and exists(remote)
     print('PASS changed source is checked again and not deleted',flush=True)
+    adb('push',str(fixture),remote)
+    adb('shell','rm','-f',remote)
+    assert options()==['仅从书架移除'];tap('取消');assert listed()
+    print('PASS unavailable source only offers shelf removal',flush=True)
     adb('push',str(fixture),remote);forget_source()
-    request();adb('shell','input','keyevent','4');time.sleep(.5);assert listed() and exists(remote)
-    request();tap(other);wait_js("document.getElementById('toast').textContent.includes('内容不一致')")
-    assert listed() and exists(remote) and exists(remote_other)
-    print('PASS legacy source picker cancel and wrong-file selection preserve all files',flush=True)
-    request();tap(name);tap('删除');wait_js('!polyReader.library.some(b=>b.id==='+json.dumps(ident)+')')
-    assert not exists(remote) and exists(remote_other)
+    assert options()==['仅从书架移除'];tap('取消')
+    assert listed() and exists(remote)
+    assert all(n.get('package')=='dev.polyreader.app' for n in tree().iter('node'))
+    print('PASS unknown source stays in the app with shelf-only removal',flush=True)
+    import_fixture();request();tap('删除')
+    wait_js('!polyReader.library.some(b=>b.id==='+json.dumps(ident)+')')
+    assert not exists(remote)
     assert js('polyReader.state.books['+json.dumps(ident)+'].notes[0].id')=='retained-note'
-    print('PASS chosen original is deleted with its shelf copy; notes remain',flush=True)
-    adb('push',str(fixture),remote);import_fixture();request();tap('删除')
-    wait_js('!polyReader.library.some(b=>b.id==='+json.dumps(ident)+')');assert not exists(remote)
-    print('PASS saved source deletes directly after confirmation',flush=True)
+    print('PASS saved source deletes directly after confirmation; notes remain',flush=True)
     # TXT identity refers to the original bytes, not the converted reading copy.
     ident=hashlib.sha256((folder/other).read_bytes()).hexdigest()
     js('polyReader.home();document.getElementById("import-button").click()');tap(other)
     wait_js('polyReader.library.some(b=>b.id==='+json.dumps(ident)+')')
-    js("const c=[...document.querySelectorAll('.book-card')].find(c=>c.textContent.includes("+json.dumps(other[:-4])+"));c.dispatchEvent(new KeyboardEvent('keydown',{key:'F10',shiftKey:true}));[...document.querySelectorAll('#panel-body button')].find(b=>b.textContent==='移除书籍').click()")
-    assert js("[...document.querySelectorAll('#panel-body button')].map(b=>b.textContent)")==['仅从书架移除','同时删除 TXT 原文件']
-    js("[...document.querySelectorAll('#panel-body button')][1].click()");tap('删除')
+    assert options()==['仅从书架移除','同时删除 TXT 原文件']
+    tap('同时删除 TXT 原文件');tap('删除')
     wait_js('!polyReader.library.some(b=>b.id==='+json.dumps(ident)+')');assert not exists(remote_other)
     print('PASS TXT original-file deletion and label',flush=True)
 finally:
     adb('shell','input','keyevent','4');adb('shell','am','start','-n','dev.polyreader.app/.MainActivity');time.sleep(1.5)
-    js('polyReader.home();Native.post(JSON.stringify({action:"delete",id:'+json.dumps(ident)+'}))');time.sleep(.4)
+    js('polyReader.home()')
+    if listed():options();tap('仅从书架移除')
     restore='(()=>{const s=polyReader.state;for(const k of Object.keys(s))delete s[k];Object.assign(s,'+json.dumps(original,ensure_ascii=False)+');window.flushState()})()'
     js(restore)
     if active.get('id'):
