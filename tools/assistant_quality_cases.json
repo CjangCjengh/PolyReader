@@ -1,0 +1,44 @@
+[
+  {
+    "id": "duplicate-word",
+    "language": "vi",
+    "selected": "cái cái",
+    "passage": "Tôi mua một cái cái bàn mới.",
+    "criteria": "Identify likely accidental duplication, propose removing one cái as a hypothesis, and do not invent a grammatical emphasis rule."
+  },
+  {
+    "id": "ordinary-reduplication",
+    "language": "vi",
+    "selected": "Ngày ngày",
+    "passage": "Ngày ngày, bà ra vườn tưới cây.",
+    "criteria": "Explain the everyday or habitual meaning. Do not recommend deleting a word as a transcription correction."
+  },
+  {
+    "id": "partial-selection",
+    "language": "ja",
+    "selected": "しゃあ",
+    "passage": "彼は悪びれもせず、いけしゃあしゃあと嘘をついた。",
+    "criteria": "Recognize the selection as part of いけしゃあしゃあ, explain shamelessness, and do not invent a standalone meaning or unsolicited etymology."
+  },
+  {
+    "id": "sound-symbolism",
+    "language": "ko",
+    "selected": "똑똑",
+    "passage": "그는 문을 똑똑 두드렸다.",
+    "criteria": "Explain the knocking sound in context, not intelligence or an accidental repeated syllable."
+  },
+  {
+    "id": "repetition-mark",
+    "language": "th",
+    "selected": "ค่อย ๆ",
+    "passage": "เธอค่อย ๆ เดินเข้ามาในห้อง",
+    "criteria": "Explain gently or slowly walking into the room. Recognize ๆ as a normal repetition mark, not corrupted punctuation."
+  },
+  {
+    "id": "ambiguous-word",
+    "language": "ja",
+    "selected": "ロック",
+    "passage": "彼は昨日のロック談義を思い出した。",
+    "criteria": "Keep plausible contextual uncertainty, especially if suggesting drinks rather than rock music. Do not invent what was discussed or claim an unsupported exact referent."
+  }
+]
