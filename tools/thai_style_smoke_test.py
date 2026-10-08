@@ -29,6 +29,24 @@ checks=js(r"""(async()=>{
   check('Night mode retains Garuda and applies shared palette',s(p).fontFamily.includes('Garuda')&&s(p).color==='rgb(190, 190, 190)');
   await engine.settings({...prefs,fontSize:32,lineHeight:1.65,margin:30});
   check('Thai typography controls reflow content',s(p).fontSize==='32px'&&s(p).lineHeight==='52.8px'&&s(b).marginLeft==='30px'&&engine.pages>2);
+  const publisher=d.createElement('style');
+  publisher.textContent='@font-face{font-family:PublisherThai;src:url("https://appassets.androidplatform.net/app/fonts/Garuda.ttf")}html{font-family:serif}h1{font-family:sans-serif}p.publisher{font-family:PublisherThai}';
+  d.head.insertBefore(publisher,engine.style);p.className='publisher';
+  await engine.settings(prefs);
+  check('Publisher root and heading fonts take precedence',s(b).fontFamily==='serif'&&s(d.querySelector('h1')).fontFamily==='sans-serif');
+  check('Publisher web font is used',s(p).fontFamily==='PublisherThai'&&[...d.fonts].some(f=>f.family==='PublisherThai'&&f.status==='loaded'));
+  b.style.fontFamily='monospace';
+  check('Publisher body font is inherited',s(d.querySelector('p')).fontFamily==='monospace');
+  await engine.settings({...prefs,font:'garuda'});
+  check('Explicit Garuda choice overrides publisher text fonts',s(p).fontFamily.includes('Garuda')&&s(b).fontFamily.includes('Garuda'));
+  await engine.settings(prefs);
+  check('Returning to original restores publisher fonts',s(p).fontFamily==='PublisherThai'&&s(b).fontFamily==='monospace');
+  publisher.remove();b.style.removeProperty('font-family');p.className='';
+  await engine.settings(prefs);
+  check('Unspecified fonts fall back to Garuda',s(p).fontFamily.includes('Garuda')&&s(d.querySelector('h1')).fontFamily.includes('Garuda'));
+  const regular=layoutPrefs(profiles.find(p=>p.id==='ridi').defaults);
+  await engine.settings(regular);
+  check('Garuda fallback is confined to RIDI Thai',!s(p).fontFamily.includes('Garuda'));
   return checks;
  }finally{engine.destroy();book.destroy();host.remove()}
 })()""")
