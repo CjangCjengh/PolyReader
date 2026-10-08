@@ -233,9 +233,13 @@ public final class MainActivity extends Activity {
             try{getContentResolver().takePersistableUriPermission(uri,modes);}catch(SecurityException ignored){}
     }
     private boolean canDeleteSource(Uri uri){
-        if(!DocumentsContract.isDocumentUri(this,uri)||checkUriPermission(uri,android.os.Process.myPid(),android.os.Process.myUid(),Intent.FLAG_GRANT_WRITE_URI_PERMISSION)!=android.content.pm.PackageManager.PERMISSION_GRANTED)return false;
-        try(Cursor c=getContentResolver().query(uri,new String[]{DocumentsContract.Document.COLUMN_FLAGS,DocumentsContract.Document.COLUMN_MIME_TYPE},null,null,null)){
-            if(c==null||!c.moveToFirst()||(c.getLong(0)&DocumentsContract.Document.FLAG_SUPPORTS_DELETE)==0||DocumentsContract.Document.MIME_TYPE_DIR.equals(c.getString(1)))return false;
+        if(!"content".equals(uri.getScheme())||checkUriPermission(uri,android.os.Process.myPid(),android.os.Process.myUid(),Intent.FLAG_GRANT_WRITE_URI_PERMISSION)!=android.content.pm.PackageManager.PERMISSION_GRANTED)return false;
+        try{
+            if(DocumentsContract.isDocumentUri(this,uri)){
+                try(Cursor c=getContentResolver().query(uri,new String[]{DocumentsContract.Document.COLUMN_FLAGS,DocumentsContract.Document.COLUMN_MIME_TYPE},null,null,null)){
+                    if(c==null||!c.moveToFirst()||(c.getLong(0)&DocumentsContract.Document.FLAG_SUPPORTS_DELETE)==0||DocumentsContract.Document.MIME_TYPE_DIR.equals(c.getString(1)))return false;
+                }
+            }
             try(InputStream in=getContentResolver().openInputStream(uri)){return in!=null;}
         }catch(Exception e){return false;}
     }
@@ -296,7 +300,8 @@ public final class MainActivity extends Activity {
         try{
             if(source!=null){
                 verifySource(id,source);
-                if(!DocumentsContract.deleteDocument(getContentResolver(),source))throw new IOException("原文件未能删除");
+                boolean deleted=DocumentsContract.isDocumentUri(this,source)?DocumentsContract.deleteDocument(getContentResolver(),source):getContentResolver().delete(source,null,null)>0;
+                if(!deleted)throw new IOException("原文件未能删除");
                 sourceDeleted=true;
             }
             removeFromLibrary(id);
