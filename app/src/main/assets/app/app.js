@@ -246,7 +246,7 @@ state=migrateState(bootstrap.state||{});library=bootstrap.library||[];save();
 assistant=new Assistant({state,send,save,showPanel,closePanel,toast,navigate:(id,cfi)=>{if(active?.id===id){closePanel();engine.go(cfi).catch(error);}}});
 $('selection-explain').textContent=assistant.t('explain');
 $('selection-explain').onclick=()=>{if(selection)assistant.explain(book,{...selection},{...active,title:caption(active)})};
-$('import-button').onclick=()=>send('import');$('about-button').onclick=()=>{const p=showPanel(assistant.t('appSettings'));actionButton(p,assistant.t('assistant'),()=>assistant.settingsPanel());actionButton(p,assistant.t('about'),about);};$('filter').oninput=renderLibrary;$('home').onclick=home;$('panel-close').onclick=closePanel;$('scrim').onclick=closePanel;
+$('import-button').onclick=()=>send('import');$('about-button').onclick=()=>{const p=showPanel(assistant.t('appSettings'));actionButton(p,assistant.t('assistant'),()=>assistant.settingsPanel());actionButton(p,assistant.t('dictionaries'),()=>assistant.dictionariesPanel());actionButton(p,assistant.t('about'),about);};$('filter').oninput=renderLibrary;$('home').onclick=home;$('panel-close').onclick=closePanel;$('scrim').onclick=closePanel;
 $('toc-button').onclick=toc;$('search-button').onclick=searchPanel;$('settings-button').onclick=()=>settings();$('style-button').onclick=()=>settings('style');$('notes-button').onclick=notes;$('add-bookmark').onclick=addBookmark;$('reader-more').onclick=more;
 $('jump-back').onclick=()=>engine.back?.().catch(error);$('progress').onchange=()=>engine.fraction(+$('progress').value/1000).catch(error);
 $('selection-bar').addEventListener('pointerdown',e=>e.preventDefault());

@@ -3,6 +3,8 @@ import {prompts,aspects,sourceLanguage,observePreference,buildMessages} from './
 import {extractContext} from './assistant-context.js';
 import {BookTools,bookTools,toolInstruction} from './assistant-tools.js';
 import {reorderList} from './reorder.js';
+import {DictionaryTools,dictionaryTool,dictionaryInstruction} from './dictionary-sources.js';
+import {dictionaryPanel} from './dictionary-settings.js';
 
 const element=(tag,text,cls)=>{const e=document.createElement(tag);if(text!=null)e.textContent=text;if(cls)e.className=cls;return e;};
 const button=(label,fn,cls)=>{const e=element('button',label,cls);e.type='button';e.onclick=fn;return e;};
@@ -13,13 +15,21 @@ export class Assistant {
   state.assistant??={};this.settings=state.assistant;
   const viewport=()=>{const v=window.visualViewport;document.documentElement.style.setProperty('--ai-height',(v?.height||innerHeight)+'px');document.documentElement.style.setProperty('--ai-bottom',Math.max(0,innerHeight-(v?.height||innerHeight)-(v?.offsetTop||0))+'px');};window.visualViewport?.addEventListener('resize',viewport);viewport();
   for(const [k,v] of Object.entries({before:3,after:3,maxChars:12000,answerLanguage:'auto',learn:true,retrieval:true,preferences:[]}))this.settings[k]??=v;
+  this.settings.dictionaries??={enabled:true,timeout:10};
+  this.dictionaryTools=new DictionaryTools({settings:this.settings.dictionaries,fetcher:this.dictionaryFetch.bind(this),progress:(key,values)=>{if(this.current){this.current.phase=this.t(key,values);this.statusText();}}});
  }
  receive(e){const request=this.pending.get(e.id);if(!request)return;request.event?.(e);if(['config','models','done'].includes(e.type)){this.pending.delete(e.id);request.resolve(e);}else if(e.type==='error'){this.pending.delete(e.id);request.reject(Object.assign(Error(this.error(e)),{code:e.code}));}}
  error(e){return this.t(e.code==='timeout'?'timeoutError':e.code,{status:e.status});}
- rpc(action,data={},event){const id=crypto.randomUUID();const promise=new Promise((resolve,reject)=>this.pending.set(id,{resolve,reject,event}));this.send(action,{...data,id});promise.id=id;return promise;}
- cancel(id){if(!id)return;this.send('aiCancel',{id});const pending=this.pending.get(id);if(pending){this.pending.delete(id);pending.reject(Object.assign(Error('cancelled'),{cancelled:true}));}}
- dismiss(){if(this.opening)return;this.disposeReorder?.();this.disposeReorder=null;this.view=null;this.viewVersion=(this.viewVersion||0)+1;this.stop();clearInterval(this.clock);$('panel').classList.remove('ai-panel','ai-chat');}
- panel(title,view){this.disposeReorder?.();this.disposeReorder=null;this.opening=true;const p=this.showPanel(title);this.opening=false;this.view=view;this.viewVersion=(this.viewVersion||0)+1;$('panel').classList.remove('ai-chat');$('panel').classList.add('ai-panel');return p;}
+ rpc(action,data={},event){const id=crypto.randomUUID();const promise=new Promise((resolve,reject)=>this.pending.set(id,{resolve,reject,event,action}));this.send(action,{...data,id});promise.id=id;return promise;}
+ cancel(id){if(!id)return;const pending=this.pending.get(id);this.send(pending?.action==='dictionaryFetch'?'dictionaryCancel':'aiCancel',{id});if(pending){this.pending.delete(id);pending.reject(Object.assign(Error('cancelled'),{cancelled:true}));}}
+ async dictionaryFetch(request,signal){
+  if(signal?.aborted)throw Error('cancelled');const rpc=this.rpc('dictionaryFetch',request),cancel=()=>this.cancel(rpc.id);
+  signal?.addEventListener('abort',cancel,{once:true});let timedOut=false;const timeout=setTimeout(()=>{timedOut=true;cancel();},request.timeout||7000);
+  try{return await rpc;}catch(e){if(timedOut)throw Error('timeout');throw e;}finally{clearTimeout(timeout);signal?.removeEventListener('abort',cancel);}
+ }
+ dictionariesPanel(){dictionaryPanel(this);}
+ dismiss(){if(this.opening)return;this.dictionaryTestAbort?.abort();this.disposeReorder?.();this.disposeReorder=null;this.view=null;this.viewVersion=(this.viewVersion||0)+1;this.stop();clearInterval(this.clock);$('panel').classList.remove('ai-panel','ai-chat');}
+ panel(title,view){this.dictionaryTestAbort?.abort();this.disposeReorder?.();this.disposeReorder=null;this.opening=true;const p=this.showPanel(title);this.opening=false;this.view=view;this.viewVersion=(this.viewVersion||0)+1;$('panel').classList.remove('ai-chat');$('panel').classList.add('ai-panel');return p;}
  showError(error){if(!error.cancelled)this.toast(error.message);}
  async config(){const result=await this.rpc('aiConfig');this.providers=result.providers;return this.providers;}
  async persistProviders(providers){const result=await this.rpc('aiSaveConfig',{providers});this.providers=result.providers;return this.providers;}
@@ -42,7 +52,7 @@ export class Assistant {
    p.inert=true;try{await this.persistProviders(ids.map(id=>this.providers.find(provider=>provider.id===id)));}finally{p.inert=false;}
   },error:e=>this.showError(e),announce:(row,position,total)=>{status.textContent=this.t('apiPosition',{name:row.querySelector('.ai-provider-name').firstChild.textContent,position,total});}});
   if(!this.providers.length)p.append(element('p',this.t('noApi'),'ai-muted'));
-  p.append(button(this.t('addApi'),()=>this.providerPanel(null),'panel-action'),button(this.t('advanced'),()=>this.advancedPanel(),'panel-action'),button(this.t('preferences'),()=>this.preferencesPanel(),'panel-action'));
+  p.append(button(this.t('addApi'),()=>this.providerPanel(null),'panel-action'),button(this.t('dictionaries'),()=>this.dictionariesPanel(),'panel-action'),button(this.t('advanced'),()=>this.advancedPanel(),'panel-action'),button(this.t('preferences'),()=>this.preferencesPanel(),'panel-action'));
  }
  providerPanel(existing){
   const p=this.panel(existing?this.t('edit'):this.t('addApi'),'provider'),provider=existing?structuredClone(existing):{id:crypto.randomUUID(),name:'',base:'',model:'',params:{},enabled:true,timeout:40};
@@ -102,6 +112,7 @@ export class Assistant {
   this.stop();const p=this.panel(this.t('explain'),'preparing'),version=this.viewVersion;p.append(element('p',this.t('contextLoading')));
   try{await this.config();if(version!==this.viewVersion)return;if(!this.providers.some(p=>p.enabled!==false)){this.settingsPanel();return;}
    const context=await extractContext(book,selection,this.settings);if(version!==this.viewVersion)return;
+   this.dictionaryTools.references.clear();
    this.bookTools=new BookTools(book,{progress:(key,values)=>{if(this.current){this.current.phase=this.t(key,values);this.statusText();}}});
    if(context.chapter&&selection.cfi)this.bookTools.references.set(context.chapter+':'+context.startParagraph,{cfi:selection.cfi});
    this.session={id:crypto.randomUUID(),bookId:item.id,title:item.title==='-'?item.filename:item.title,language:sourceLanguage(context.passage,item.language),context,messages:[]};this.chatPanel();this.answer();
@@ -114,48 +125,60 @@ export class Assistant {
   const details=element('details',null,'ai-context');details.append(element('summary',t('context')+(session.context.limited?' · '+t('contextLimited'):'')),element('div',[...session.context.before,session.context.passage,...session.context.after].join('\n\n')));p.append(details);
   this.transcript=element('div',null,'ai-transcript');p.append(this.transcript);for(const m of session.messages)this.messageNode(m);
   this.status=element('div',null,'ai-status');this.status.setAttribute('role','status');p.append(this.status);
-  const form=element('form',null,'ai-compose'),input=element('textarea');input.placeholder=t('followup');input.rows=2;input.maxLength=6000;
-  const send=button(t('send'),()=>form.requestSubmit(),'primary');this.stopButton=button(t('stop'),()=>this.stop());this.stopButton.hidden=!this.current;
+  const form=element('form',null,'ai-compose'),input=element('textarea');input.placeholder=t('followup');input.rows=1;input.maxLength=6000;
+  input.addEventListener('input',()=>{input.style.height='48px';input.style.height=Math.min(120,Math.max(48,input.scrollHeight+2))+'px';});
+  const send=button(t('send'),()=>form.requestSubmit(),'primary ai-send');this.stopButton=button(t('stop'),()=>this.stop(),'ai-stop');this.stopButton.hidden=!this.current;
   this.retry=button(t('retry'),()=>{this.session.messages=this.session.messages.filter(m=>!m.incomplete);this.chatPanel();this.answer();});this.retry.hidden=true;
-  form.append(input,send,this.stopButton,this.retry);form.onsubmit=e=>{e.preventDefault();const text=input.value.trim();if(!text||this.current)return;input.value='';const m={role:'user',content:text};session.messages.push(m);this.messageNode(m);this.answer(text);};p.append(form);
+  form.append(input,send,this.stopButton,this.retry);form.onsubmit=e=>{e.preventDefault();const text=input.value.trim();if(!text||this.current)return;input.value='';input.style.height='48px';const m={role:'user',content:text};session.messages.push(m);this.messageNode(m);this.answer(text);};p.append(form);
   input.addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();form.requestSubmit();}});
  }
  renderMessage(node,message){
   const session=this.session;
   renderMarkdown(node,message.content,message.role==='assistant'?{streaming:!!message.incomplete,citation:id=>{
+   if(id.startsWith('D')){const source=this.dictionaryTools.references.get(id);return source?button(source.source,()=>this.send('openDictionary',{url:source.url}),'ai-citation'):null;}
    const source=this.bookTools?.references.get(id);
    return source?button(this.t('source'),()=>this.navigate?.(session.bookId,source.cfi),'ai-citation'):null;
   }}:undefined);
  }
  messageNode(message){const node=element('div',null,'ai-message '+message.role);this.renderMessage(node,message);if(message.role==='assistant'&&!message.incomplete)this.messageActions(node,message);this.transcript.append(node);return node;}
  messageActions(node,message){
-  const copy=button(this.t('copy'),()=>{this.send('copy',{text:message.content.replace(/\s*\[\d+:\d+\]/g,'')});this.toast(this.t('copied'));},'ai-copy');
+  const copy=button(this.t('copy'),()=>{this.send('copy',{text:message.content.replace(/\s*\[\d+:\d+\]/g,'').replace(/\[D\d+\]/g,id=>{const r=this.dictionaryTools.references.get(id.slice(1,-1));return r?'['+r.source+']('+r.url+')':'';})});this.toast(this.t('copied'));},'ai-copy');
   const icon=element('span',null,'ai-copy-icon');icon.setAttribute('aria-hidden','true');copy.prepend(icon);node.append(copy);
  }
  statusText(){if(!this.status||this.view!=='chat'||!this.current)return;const c=this.current;if(c.phase){this.status.textContent=c.phase;return;}let status=this.t(c.text?'streaming':c.thinking?'thinking':'connecting',{seconds:Math.floor((performance.now()-c.start)/1000)});this.status.textContent=(c.model?c.model+' · ':'')+status;}
  stop(){if(this.current){this.current.abort?.abort();this.current.message.incomplete=true;this.cancel(this.current.id);this.current=null;if(this.status)this.status.textContent=this.t('stopped');if(this.stopButton)this.stopButton.hidden=true;if(this.retry)this.retry.hidden=false;}clearInterval(this.clock);}
  async answer(followup){
-  if(this.current||!this.session)return;const session=this.session,requestMessages=buildMessages(this.settings,session,this.locale,this.t),retrieve=this.settings.retrieval&&this.bookTools;
+  if(this.current||!this.session)return;const session=this.session,requestMessages=buildMessages(this.settings,session,this.locale,this.t),retrieve=this.settings.retrieval&&this.bookTools,lookup=this.dictionaryTools.available(session.language);
+  const tools=[...(retrieve?bookTools:[]),...(lookup?[dictionaryTool]:[])];
   if(retrieve)requestMessages[0].content+='\n'+toolInstruction;
-  const message={role:'assistant',content:'',incomplete:true};session.messages.push(message);const node=this.messageNode(message),current={message,start:performance.now(),text:'',model:'',thinking:false,abort:new AbortController()};this.current=current;this.stopButton.hidden=false;this.retry.hidden=true;
+  if(lookup)requestMessages[0].content+='\n'+dictionaryInstruction(this.locale);
+  const message={role:'assistant',content:'',incomplete:true};session.messages.push(message);const node=this.messageNode(message),current={message,start:performance.now(),text:'',prefix:'',model:'',thinking:false,abort:new AbortController()};this.current=current;this.stopButton.hidden=false;this.retry.hidden=true;
   const scroll=()=>{this.transcript.scrollTop=this.transcript.scrollHeight;};this.clock=setInterval(()=>this.statusText(),1000);this.statusText();scroll();let tokens=0,remainingTools=4;
   try{
    for(let round=0;round<=4;round++){
     current.phase='';
-    const rpc=this.rpc('aiChat',{messages:requestMessages,...(retrieve?{tools:bookTools,toolChoice:round===4||remainingTools<=0?'none':'auto'}:{})},event=>{
+    const rpc=this.rpc('aiChat',{messages:requestMessages,...(tools.length?{tools,toolChoice:round===4||remainingTools<=0?'none':'auto'}:{})},event=>{
      if(this.current!==current)return;
-     if(event.type==='attempt'){current.text='';message.content='';node.replaceChildren();current.model=event.model;current.thinking=false;if(event.attempt>1)this.status.textContent=this.t('switching',{model:event.model});}
+     if(event.type==='attempt'){current.text=current.prefix;message.content=current.prefix;this.renderMessage(node,message);current.model=event.model;current.thinking=false;if(event.attempt>1)this.status.textContent=this.t('switching',{model:event.model});}
      if(event.type==='delta'){const stick=this.transcript.scrollHeight-this.transcript.scrollTop-this.transcript.clientHeight<70;current.text+=event.text;message.content=current.text;current.thinking=event.thinking;this.renderMessage(node,message);if(stick)scroll();this.statusText();}
      if(event.type==='failed')this.status.textContent=this.error(event);
     });current.id=rpc.id;
     const result=await rpc;if(this.current!==current)return;
     const usage=result.usage?.completion_tokens_details?.reasoning_tokens;if(Number.isFinite(usage))tokens+=usage;
-    if(result.toolCalls?.length&&retrieve&&round<4){
-     requestMessages.push({role:'assistant',content:current.text||null,tool_calls:result.toolCalls,...(result.reasoning?{reasoning_content:result.reasoning}:{})});
-     for(const call of result.toolCalls){
-      let data;try{data=remainingTools-->0?await this.bookTools.execute(call,current.abort.signal):{error:'tool_budget_exhausted'};}catch(e){if(current.abort.signal.aborted)return;data={error:e.message};}
-      if(this.current!==current)return;
-      const content=JSON.stringify(data);requestMessages.push({role:'tool',tool_call_id:call.id,content});session.evidence=[...(session.evidence||[]),content.slice(0,8000)].slice(-2);
+    if(result.toolCalls?.length&&tools.length&&round<4){
+     requestMessages.push({role:'assistant',content:current.text.slice(current.prefix.length)||null,tool_calls:result.toolCalls,...(result.reasoning?{reasoning_content:result.reasoning}:{})});
+     current.prefix=current.text?current.text.trimEnd()+'\n\n':'';
+     const outputs=await Promise.all(result.toolCalls.map(async call=>{
+      if(remainingTools--<=0)return {error:'tool_budget_exhausted'};
+      try{
+       if(call.function.name==='lookup_dictionary'&&lookup)return await this.dictionaryTools.execute(call,current.abort.signal);
+       if(retrieve&&bookTools.some(t=>t.function.name===call.function.name))return await this.bookTools.execute(call,current.abort.signal);
+       return {error:'unknown_tool'};
+      }catch(e){return {error:e.message};}
+     }));
+     if(this.current!==current||current.abort.signal.aborted)return;
+     for(let i=0;i<result.toolCalls.length;i++){
+      const content=JSON.stringify(outputs[i]);requestMessages.push({role:'tool',tool_call_id:result.toolCalls[i].id,content});session.evidence=[...(session.evidence||[]),content.slice(0,14000)].slice(-4);
      }
      if(round===3||remainingTools<=0)requestMessages.push({role:'user',content:this.t('toolLimit')});continue;
     }
@@ -180,11 +203,11 @@ export class Assistant {
 // Render a small Markdown subset using DOM text nodes; model output never becomes HTML.
 export function renderMarkdown(root,text,{citation,streaming=false}={}){
  // Keep incomplete internal references out of streamed text until their closing bracket arrives.
- if(citation)text=text.replace(streaming?/\[(?:\d+(?::\d*)?)?$/:/\[\d+:\d*$/,'');
+ if(citation)text=text.replace(streaming?/\[(?:D\d*|\d+(?::\d*)?)?$/:/\[(?:D\d*|\d+:\d*)$/,'');
  const inline=(node,text)=>{
   if(!citation){node.append(document.createTextNode(text));return;}
-  for(const part of text.split(/(\[\d+:\d+\])/g)){
-   const match=part.match(/^\[(\d+:\d+)\]$/);
+  for(const part of text.split(/(\[(?:\d+:\d+|D\d+)\])/g)){
+   const match=part.match(/^\[(\d+:\d+|D\d+)\]$/);
    if(match){const link=citation(match[1]);if(link)node.append(link);}else node.append(document.createTextNode(part));
   }
  };
