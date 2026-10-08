@@ -129,7 +129,8 @@ export class Assistant {
  }
  messageNode(message){const node=element('div',null,'ai-message '+message.role);this.renderMessage(node,message);if(message.role==='assistant'&&!message.incomplete)this.messageActions(node,message);this.transcript.append(node);return node;}
  messageActions(node,message){
-  node.append(button(this.t('copy'),()=>{this.send('copy',{text:message.content.replace(/\s*\[\d+:\d+\]/g,'')});this.toast(this.t('copied'));},'ai-source'));
+  const copy=button(this.t('copy'),()=>{this.send('copy',{text:message.content.replace(/\s*\[\d+:\d+\]/g,'')});this.toast(this.t('copied'));},'ai-copy');
+  const icon=element('span',null,'ai-copy-icon');icon.setAttribute('aria-hidden','true');copy.prepend(icon);node.append(copy);
  }
  statusText(){if(!this.status||this.view!=='chat'||!this.current)return;const c=this.current;if(c.phase){this.status.textContent=c.phase;return;}let status=this.t(c.text?'streaming':c.thinking?'thinking':'connecting',{seconds:Math.floor((performance.now()-c.start)/1000)});this.status.textContent=(c.model?c.model+' · ':'')+status;}
  stop(){if(this.current){this.current.abort?.abort();this.current.message.incomplete=true;this.cancel(this.current.id);this.current=null;if(this.status)this.status.textContent=this.t('stopped');if(this.stopButton)this.stopButton.hidden=true;if(this.retry)this.retry.hidden=false;}clearInterval(this.clock);}

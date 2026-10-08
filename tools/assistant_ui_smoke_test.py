@@ -29,7 +29,7 @@ checks=js(r"""(async()=>{
   ai.chatPanel();await ai.answer();check('Tool results are returned in a separate tool message',requests[1].messages.some(m=>m.role==='tool'&&m.tool_call_id==='lookup'));
   body.querySelector('.ai-citation').click();check('Source button resolves to the book location',navigated?.id==='fixture'&&navigated?.cfi==='source-cfi');
   check('Readable inline source labels replace internal coordinates',body.querySelector('.ai-message p .ai-citation')?.textContent==='原文'&&!body.querySelector('.ai-message').textContent.includes('[2:3]'));
-  body.querySelector('.ai-source').click();check('Copied answers omit internal coordinates',copied==='Evidence confirms the meaning.');
+  body.querySelector('.ai-copy').click();check('Copied answers omit internal coordinates',copied==='Evidence confirms the meaning.');
   check('Final answer follows retrieval',ai.session.messages.at(-1).content.includes('[2:3]')&&!ai.session.messages.at(-1).incomplete);
   const fixture=document.createElement('div'),citation=id=>id==='2:3'?Object.assign(document.createElement('button'),{textContent:'原文'}):null;
   for(const suffix of ['[','[2','[2:','[2:3']){renderMarkdown(fixture,'Evidence '+suffix,{citation,streaming:true});check('Partial streamed source is withheld: '+suffix,fixture.textContent==='Evidence ');}
