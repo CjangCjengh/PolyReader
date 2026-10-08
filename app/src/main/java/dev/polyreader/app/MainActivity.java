@@ -415,7 +415,7 @@ public final class MainActivity extends Activity {
                 break;
             }
             case "copy": ((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("PolyReader",o.optString("text"))); break;
-            case "openDictionary": {Uri uri=Uri.parse(o.optString("url"));if("https".equals(uri.getScheme())&&uri.getHost()!=null&&uri.getUserInfo()==null)startActivity(new Intent(Intent.ACTION_VIEW,uri));break;}
+            case "openLink": {Uri uri=Uri.parse(o.optString("url"));if(("https".equals(uri.getScheme())||"http".equals(uri.getScheme()))&&uri.getHost()!=null&&uri.getUserInfo()==null)startActivity(new Intent(Intent.ACTION_VIEW,uri));break;}
             case "export": exportText=o.optString("text"); startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/json").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE,"PolyReader-notes.json"),EXPORT_NOTES); break;
             case "removeBook": {String id=o.optString("id");if(id.matches("[a-f0-9]{64}"))showRemovalOptions(id);break;}
         }

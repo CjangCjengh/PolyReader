@@ -21,7 +21,7 @@ checks=js(r"""(async()=>{
  const panel=document.getElementById('panel'),body=document.getElementById('panel-body');let ai,round=0,active=0,peak=0,opened,copied;
  const requests=[];
  ai=new Assistant({state:{assistant:{learn:false,retrieval:true}},save(){},toast(){},showPanel(){panel.hidden=false;body.replaceChildren();return body;},closePanel(){panel.hidden=true;},send(action,data){
-  if(action==='openDictionary'){opened=data.url;return;}if(action==='copy'){copied=data.text;return;}if(action.endsWith('Cancel'))return;
+  if(action==='openLink'){opened=data.url;return;}if(action==='copy'){copied=data.text;return;}if(action.endsWith('Cancel'))return;
   if(action!=='aiChat')throw Error(action);requests.push(structuredClone(data));const turn=++round;
   setTimeout(()=>{const emit=(type,value={})=>ai.receive({id:data.id,type,...value});emit('attempt',{model:'Fixture',attempt:1});
    if(turn===1){emit('delta',{text:'Context-supported opening.'});emit('done',{toolCalls:[{id:'book',function:{name:'read_passage',arguments:'{}'}},{id:'dict',function:{name:'lookup_dictionary',arguments:'{"query":"word","language":"ja","purpose":"both"}'}}]});}

@@ -55,7 +55,7 @@ function sourcePanel(ai,existing){
    const tools=new DictionaryTools({settings:{sources:[{...next,enabled:true}]},fetcher:ai.dictionaryFetch.bind(ai)});
    const data=await tools.execute({function:{name:'lookup_dictionary',arguments:JSON.stringify({query:query.value,language:next.languages.find(l=>l!=='*')||'en',purpose:'both'})}},controller.signal);
    if(version!==ai.viewVersion||controller.signal.aborted)return;result.replaceChildren();
-   for(const r of data.results){result.append(el('p',t('dictionaryStatus',{name:r.source,status:t('dictionary_'+r.status)})));for(const e of r.entries){result.append(el('strong',e.title),el('pre',e.text),button(t('dictionaryOpen'),()=>ai.send('openDictionary',{url:e.url})));}}
+   for(const r of data.results){result.append(el('p',t('dictionaryStatus',{name:r.source,status:t('dictionary_'+r.status)})));for(const e of r.entries){result.append(el('strong',e.title),el('pre',e.text),button(t('dictionaryOpen'),()=>ai.send('openLink',{url:e.url})));}}
   }catch(e){if(e.message!=='cancelled')result.textContent=e.message;}finally{testing=null;ai.dictionaryTestAbort=null;test.textContent=t('dictionaryTest');}
  });p.append(test,result);
  if(existing)p.append(button(t('remove'),()=>{ai.settings.dictionaries.sources=ai.settings.dictionaries.sources.filter(s=>s.id!==existing.id);ai.save();dictionaryPanel(ai);},'panel-action danger'));

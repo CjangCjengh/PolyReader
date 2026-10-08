@@ -5,6 +5,8 @@ import {BookTools,bookTools,toolInstruction} from './assistant-tools.js';
 import {reorderList} from './reorder.js';
 import {DictionaryTools,dictionaryTool,dictionaryInstruction} from './dictionary-sources.js';
 import {dictionaryPanel} from './dictionary-settings.js';
+import {renderMarkdown} from './markdown.js';
+export {renderMarkdown} from './markdown.js';
 
 const element=(tag,text,cls)=>{const e=document.createElement(tag);if(text!=null)e.textContent=text;if(cls)e.className=cls;return e;};
 const button=(label,fn,cls)=>{const e=element('button',label,cls);e.type='button';e.onclick=fn;return e;};
@@ -13,7 +15,11 @@ export class Assistant {
  constructor({state,send,save,showPanel,closePanel,toast,navigate}){
   Object.assign(this,{state,send,save,showPanel,closePanel,toast,navigate});this.pending=new Map();this.providers=[];this.locale=state.uiLanguage||'zh-CN';this.t=translator(this.locale);
   state.assistant??={};this.settings=state.assistant;
-  const viewport=()=>{const v=window.visualViewport;document.documentElement.style.setProperty('--ai-height',(v?.height||innerHeight)+'px');document.documentElement.style.setProperty('--ai-bottom',Math.max(0,innerHeight-(v?.height||innerHeight)-(v?.offsetTop||0))+'px');};window.visualViewport?.addEventListener('resize',viewport);viewport();
+  const viewport=()=>{
+   const v=window.visualViewport,s=document.documentElement.style,height=v?.height||innerHeight,keyboard=innerHeight-height>100;
+   s.setProperty('--ai-height',height+'px');s.setProperty('--ai-bottom',Math.max(0,innerHeight-height-(v?.offsetTop||0))+'px');
+   s.setProperty('--ai-safe-bottom',keyboard?'0px':'var(--toolbar-bottom,0px)');s.setProperty('--ai-compose-gap',keyboard?'8px':'14px');
+  };window.visualViewport?.addEventListener('resize',viewport);window.visualViewport?.addEventListener('scroll',viewport);viewport();
   for(const [k,v] of Object.entries({before:3,after:3,maxChars:12000,answerLanguage:'auto',learn:true,retrieval:true,preferences:[]}))this.settings[k]??=v;
   this.settings.dictionaries??={enabled:true,timeout:10};
   this.dictionaryTools=new DictionaryTools({settings:this.settings.dictionaries,fetcher:this.dictionaryFetch.bind(this),progress:(key,values)=>{if(this.current){this.current.phase=this.t(key,values);this.statusText();}}});
@@ -134,8 +140,8 @@ export class Assistant {
  }
  renderMessage(node,message){
   const session=this.session;
-  renderMarkdown(node,message.content,message.role==='assistant'?{streaming:!!message.incomplete,citation:id=>{
-   if(id.startsWith('D')){const source=this.dictionaryTools.references.get(id);return source?button(source.source,()=>this.send('openDictionary',{url:source.url}),'ai-citation'):null;}
+  renderMarkdown(node,message.content,message.role==='assistant'?{streaming:!!message.incomplete,openLink:url=>this.send('openLink',{url}),citation:id=>{
+   if(id.startsWith('D')){const source=this.dictionaryTools.references.get(id);return source?button(source.source,()=>this.send('openLink',{url:source.url}),'ai-citation'):null;}
    const source=this.bookTools?.references.get(id);
    return source?button(this.t('source'),()=>this.navigate?.(session.bookId,source.cfi),'ai-citation'):null;
   }}:undefined);
@@ -198,25 +204,4 @@ export class Assistant {
    const learned=observePreference(this.settings,{aspect,language:session.language,session:session.id});this.save();if(learned&&this.view==='chat')this.toast(this.t('learned',{text:this.t(aspect)}));
   }catch{}
  }
-}
-
-// Render a small Markdown subset using DOM text nodes; model output never becomes HTML.
-export function renderMarkdown(root,text,{citation,streaming=false}={}){
- // Keep incomplete internal references out of streamed text until their closing bracket arrives.
- if(citation)text=text.replace(streaming?/\[(?:D\d*|\d+(?::\d*)?)?$/:/\[(?:D\d*|\d+:\d*)$/,'');
- const inline=(node,text)=>{
-  if(!citation){node.append(document.createTextNode(text));return;}
-  for(const part of text.split(/(\[(?:\d+:\d+|D\d+)\])/g)){
-   const match=part.match(/^\[(\d+:\d+|D\d+)\]$/);
-   if(match){const link=citation(match[1]);if(link)node.append(link);}else node.append(document.createTextNode(part));
-  }
- };
- const fragment=document.createDocumentFragment();let code=false;
- for(const line of text.split('\n')){
-  if(line.startsWith('```')){code=!code;continue;}
-  const node=element(code?'pre':/^#{1,4} /.test(line)?'h3':'p');let value=line.replace(/^#{1,4} /,'').replace(/^[-*] /,'• ');
-  if(code)inline(node,line);else{for(const part of value.split(/(\*\*[^*]+\*\*|`[^`]+`)/g)){if(part.startsWith('**')&&part.endsWith('**')){const strong=element('strong');inline(strong,part.slice(2,-2));node.append(strong);}else if(part.startsWith('`')&&part.endsWith('`')){const code=element('code');inline(code,part.slice(1,-1));node.append(code);}else inline(node,part);}}
-  if(!line)node.className='ai-blank';fragment.append(node);
- }
- root.replaceChildren(fragment);
 }

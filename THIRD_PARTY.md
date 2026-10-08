@@ -6,6 +6,7 @@
 | RIDIBatang | Official OTF | [Source](https://ridicorp.com/ridibatang/), SIL OFL 1.1 |
 | Foliate JS | 78914ae | [Source](https://github.com/johnfactotum/foliate-js), MIT |
 | zip.js / fflate | Vendored | BSD-3-Clause / MIT |
+| markdown-it | 15.0.2 | [Source](https://github.com/markdown-it/markdown-it), MIT; dependency notices included |
 | Gradle wrapper | 8.9 | Apache 2.0 |
 | BOOK☆WALKER reader modules | 7.9.2, arm64 | PUBLUS/MARS/Chromium binaries and Morisawa fonts; proprietary components retain their original ownership |
 
