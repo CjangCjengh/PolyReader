@@ -2,6 +2,7 @@ import {translator,languages} from './i18n.js';
 import {prompts,aspects,sourceLanguage,observePreference,buildMessages} from './assistant-prompts.js';
 import {extractContext} from './assistant-context.js';
 import {BookTools,bookTools,toolInstruction} from './assistant-tools.js';
+import {reorderList} from './reorder.js';
 
 const element=(tag,text,cls)=>{const e=document.createElement(tag);if(text!=null)e.textContent=text;if(cls)e.className=cls;return e;};
 const button=(label,fn,cls)=>{const e=element('button',label,cls);e.type='button';e.onclick=fn;return e;};
@@ -17,8 +18,8 @@ export class Assistant {
  error(e){return this.t(e.code==='timeout'?'timeoutError':e.code,{status:e.status});}
  rpc(action,data={},event){const id=crypto.randomUUID();const promise=new Promise((resolve,reject)=>this.pending.set(id,{resolve,reject,event}));this.send(action,{...data,id});promise.id=id;return promise;}
  cancel(id){if(!id)return;this.send('aiCancel',{id});const pending=this.pending.get(id);if(pending){this.pending.delete(id);pending.reject(Object.assign(Error('cancelled'),{cancelled:true}));}}
- dismiss(){if(this.opening)return;this.view=null;this.viewVersion=(this.viewVersion||0)+1;this.stop();clearInterval(this.clock);$('panel').classList.remove('ai-panel','ai-chat');}
- panel(title,view){this.opening=true;const p=this.showPanel(title);this.opening=false;this.view=view;this.viewVersion=(this.viewVersion||0)+1;$('panel').classList.add('ai-panel');return p;}
+ dismiss(){if(this.opening)return;this.disposeReorder?.();this.disposeReorder=null;this.view=null;this.viewVersion=(this.viewVersion||0)+1;this.stop();clearInterval(this.clock);$('panel').classList.remove('ai-panel','ai-chat');}
+ panel(title,view){this.disposeReorder?.();this.disposeReorder=null;this.opening=true;const p=this.showPanel(title);this.opening=false;this.view=view;this.viewVersion=(this.viewVersion||0)+1;$('panel').classList.remove('ai-chat');$('panel').classList.add('ai-panel');return p;}
  showError(error){if(!error.cancelled)this.toast(error.message);}
  async config(){const result=await this.rpc('aiConfig');this.providers=result.providers;return this.providers;}
  async persistProviders(providers){const result=await this.rpc('aiSaveConfig',{providers});this.providers=result.providers;return this.providers;}
@@ -29,12 +30,17 @@ export class Assistant {
   const p=this.panel(this.t('assistant'),'settings'),version=this.viewVersion;
   p.append(element('p',this.t('apiHint'),'ai-muted'));
   try{await this.config();if(version!==this.viewVersion)return;}catch(e){this.showError(e);return;}
-  for(const [i,provider] of this.providers.entries()){
-   const card=element('div',null,'ai-provider');const name=button(provider.name||provider.model,()=>this.providerPanel(provider),'ai-provider-name');name.append(element('small',provider.model));card.append(name);
-   const controls=element('div',null,'ai-actions');
-   for(const [text,delta] of [['up',-1],['down',1]]){const b=button(this.t(text),async()=>{try{const list=[...this.providers];[list[i],list[i+delta]]=[list[i+delta],list[i]];await this.persistProviders(list);this.settingsPanel();}catch(e){this.showError(e)}});b.disabled=i+delta<0||i+delta>=this.providers.length;controls.append(b);}
-   card.append(controls);if(provider.enabled===false)card.classList.add('ai-disabled');p.append(card);
+  const list=element('div',null,'ai-provider-list'),status=element('span',null,'ai-visually-hidden');status.setAttribute('role','status');p.append(list,status);
+  for(const provider of this.providers){
+   const card=element('div',null,'ai-provider ai-provider-row');card.dataset.id=provider.id;
+   const name=button(provider.name||provider.model,()=>this.providerPanel(provider),'ai-provider-name');name.append(element('small',provider.model));card.append(name);
+   const handle=button('',()=>{},'ai-drag-handle');handle.setAttribute('aria-label',this.t('reorderApi',{name:provider.name||provider.model}));
+   const grip=element('span');grip.setAttribute('aria-hidden','true');handle.append(grip);handle.disabled=this.providers.length<2;
+   card.append(handle);if(provider.enabled===false)card.classList.add('ai-disabled');list.append(card);
   }
+  this.disposeReorder=reorderList(list,{scroll:p,commit:async ids=>{
+   p.inert=true;try{await this.persistProviders(ids.map(id=>this.providers.find(provider=>provider.id===id)));}finally{p.inert=false;}
+  },error:e=>this.showError(e),announce:(row,position,total)=>{status.textContent=this.t('apiPosition',{name:row.querySelector('.ai-provider-name').firstChild.textContent,position,total});}});
   if(!this.providers.length)p.append(element('p',this.t('noApi'),'ai-muted'));
   p.append(button(this.t('addApi'),()=>this.providerPanel(null),'panel-action'),button(this.t('advanced'),()=>this.advancedPanel(),'panel-action'),button(this.t('preferences'),()=>this.preferencesPanel(),'panel-action'));
  }
@@ -114,11 +120,16 @@ export class Assistant {
   form.append(input,send,this.stopButton,this.retry);form.onsubmit=e=>{e.preventDefault();const text=input.value.trim();if(!text||this.current)return;input.value='';const m={role:'user',content:text};session.messages.push(m);this.messageNode(m);this.answer(text);};p.append(form);
   input.addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();form.requestSubmit();}});
  }
- messageNode(message){const node=element('div',null,'ai-message '+message.role);renderMarkdown(node,message.content);if(message.role==='assistant'&&!message.incomplete)this.messageActions(node,message);this.transcript.append(node);return node;}
+ renderMessage(node,message){
+  const session=this.session;
+  renderMarkdown(node,message.content,message.role==='assistant'?{streaming:!!message.incomplete,citation:id=>{
+   const source=this.bookTools?.references.get(id);
+   return source?button(this.t('source'),()=>this.navigate?.(session.bookId,source.cfi),'ai-citation'):null;
+  }}:undefined);
+ }
+ messageNode(message){const node=element('div',null,'ai-message '+message.role);this.renderMessage(node,message);if(message.role==='assistant'&&!message.incomplete)this.messageActions(node,message);this.transcript.append(node);return node;}
  messageActions(node,message){
-  node.append(button(this.t('copy'),()=>{this.send('copy',{text:message.content});this.toast(this.t('copied'));},'ai-source'));
-  const citations=[...new Set([...message.content.matchAll(/\[(\d+:\d+)\]/g)].map(m=>m[1]))],session=this.session;
-  for(const id of citations){const source=this.bookTools?.references.get(id);if(source)node.append(button('['+id+'] '+this.t('sources'),()=>this.navigate?.(session.bookId,source.cfi),'ai-source ai-citation'));}
+  node.append(button(this.t('copy'),()=>{this.send('copy',{text:message.content.replace(/\s*\[\d+:\d+\]/g,'')});this.toast(this.t('copied'));},'ai-source'));
  }
  statusText(){if(!this.status||this.view!=='chat'||!this.current)return;const c=this.current;if(c.phase){this.status.textContent=c.phase;return;}let status=this.t(c.text?'streaming':c.thinking?'thinking':'connecting',{seconds:Math.floor((performance.now()-c.start)/1000)});this.status.textContent=(c.model?c.model+' · ':'')+status;}
  stop(){if(this.current){this.current.abort?.abort();this.current.message.incomplete=true;this.cancel(this.current.id);this.current=null;if(this.status)this.status.textContent=this.t('stopped');if(this.stopButton)this.stopButton.hidden=true;if(this.retry)this.retry.hidden=false;}clearInterval(this.clock);}
@@ -133,7 +144,7 @@ export class Assistant {
     const rpc=this.rpc('aiChat',{messages:requestMessages,...(retrieve?{tools:bookTools,toolChoice:round===4||remainingTools<=0?'none':'auto'}:{})},event=>{
      if(this.current!==current)return;
      if(event.type==='attempt'){current.text='';message.content='';node.replaceChildren();current.model=event.model;current.thinking=false;if(event.attempt>1)this.status.textContent=this.t('switching',{model:event.model});}
-     if(event.type==='delta'){const stick=this.transcript.scrollHeight-this.transcript.scrollTop-this.transcript.clientHeight<70;current.text+=event.text;message.content=current.text;current.thinking=event.thinking;renderMarkdown(node,message.content);if(stick)scroll();this.statusText();}
+     if(event.type==='delta'){const stick=this.transcript.scrollHeight-this.transcript.scrollTop-this.transcript.clientHeight<70;current.text+=event.text;message.content=current.text;current.thinking=event.thinking;this.renderMessage(node,message);if(stick)scroll();this.statusText();}
      if(event.type==='failed')this.status.textContent=this.error(event);
     });current.id=rpc.id;
     const result=await rpc;if(this.current!==current)return;
@@ -148,7 +159,7 @@ export class Assistant {
      if(round===3||remainingTools<=0)requestMessages.push({role:'user',content:this.t('toolLimit')});continue;
     }
     if(result.toolCalls?.length&&!current.text)throw Error(this.t('all_failed'));
-    message.incomplete=false;let status=this.t('complete',{model:current.model,seconds:Math.round((performance.now()-current.start)/100)/10});
+    message.incomplete=false;this.renderMessage(node,message);let status=this.t('complete',{model:current.model,seconds:Math.round((performance.now()-current.start)/100)/10});
     if(tokens>0)status+=' · '+this.t('thinkingTokens',{tokens});this.status.textContent=status;
     if(result.finishReason==='length')node.append(element('p',this.t('truncated'),'ai-muted'));
     this.messageActions(node,message);
@@ -166,12 +177,21 @@ export class Assistant {
 }
 
 // Render a small Markdown subset using DOM text nodes; model output never becomes HTML.
-export function renderMarkdown(root,text){
+export function renderMarkdown(root,text,{citation,streaming=false}={}){
+ // Keep incomplete internal references out of streamed text until their closing bracket arrives.
+ if(citation)text=text.replace(streaming?/\[(?:\d+(?::\d*)?)?$/:/\[\d+:\d*$/,'');
+ const inline=(node,text)=>{
+  if(!citation){node.append(document.createTextNode(text));return;}
+  for(const part of text.split(/(\[\d+:\d+\])/g)){
+   const match=part.match(/^\[(\d+:\d+)\]$/);
+   if(match){const link=citation(match[1]);if(link)node.append(link);}else node.append(document.createTextNode(part));
+  }
+ };
  const fragment=document.createDocumentFragment();let code=false;
  for(const line of text.split('\n')){
   if(line.startsWith('```')){code=!code;continue;}
   const node=element(code?'pre':/^#{1,4} /.test(line)?'h3':'p');let value=line.replace(/^#{1,4} /,'').replace(/^[-*] /,'• ');
-  if(code)node.textContent=line;else{for(const part of value.split(/(\*\*[^*]+\*\*|`[^`]+`)/g)){if(part.startsWith('**')&&part.endsWith('**'))node.append(element('strong',part.slice(2,-2)));else if(part.startsWith('`')&&part.endsWith('`'))node.append(element('code',part.slice(1,-1)));else node.append(document.createTextNode(part));}}
+  if(code)inline(node,line);else{for(const part of value.split(/(\*\*[^*]+\*\*|`[^`]+`)/g)){if(part.startsWith('**')&&part.endsWith('**')){const strong=element('strong');inline(strong,part.slice(2,-2));node.append(strong);}else if(part.startsWith('`')&&part.endsWith('`')){const code=element('code');inline(code,part.slice(1,-1));node.append(code);}else inline(node,part);}}
   if(!line)node.className='ai-blank';fragment.append(node);
  }
  root.replaceChildren(fragment);

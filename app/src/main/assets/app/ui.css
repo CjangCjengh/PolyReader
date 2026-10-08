@@ -76,7 +76,13 @@ body.dark-reader .progress-row input[type=range]::-webkit-slider-runnable-track{
 .ai-field input[type=checkbox]{width:22px;height:22px;accent-color:var(--accent)}
 .ai-panel textarea{font-size:16px;line-height:1.6}.ai-prompt{min-height:200px}
 .ai-provider{padding:12px 0;border-bottom:1px solid var(--line)}.ai-provider-name{padding:0;text-align:left;max-width:100%;overflow-wrap:anywhere;font-size:17px}.ai-provider-name small{margin-top:4px}
-.ai-actions{display:flex;gap:8px;justify-content:flex-end}.ai-actions button{font-size:14px}.ai-disabled{opacity:.5}
+.ai-disabled{opacity:.5}
+.ai-provider-row{display:flex;align-items:center;gap:12px;min-height:78px;background:var(--card)}.ai-provider-row .ai-provider-name{flex:1;min-width:0}.ai-provider-row small{font-size:14px;line-height:1.6}
+.ai-drag-handle{flex:0 0 48px;width:48px;height:48px;padding:12px;touch-action:none;user-select:none;-webkit-user-select:none;cursor:grab;color:var(--muted);display:grid;place-items:center}
+.ai-drag-handle span{width:20px;height:12px;border-block:2px solid currentColor;position:relative}.ai-drag-handle span::after{content:'';position:absolute;left:0;right:0;top:3px;border-top:2px solid currentColor}
+.ai-drag-placeholder{background:var(--paper)}.ai-drag-placeholder>*{visibility:hidden}.ai-dragging{position:fixed;z-index:40;pointer-events:none;padding-inline:10px;box-shadow:0 5px 20px #0002;border-radius:8px;opacity:.96}
+.ai-visually-hidden{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.ai-message .ai-citation{display:inline-block;vertical-align:baseline;font-size:14px;line-height:1.5;min-height:0;margin-inline:4px;padding:2px 7px;border-radius:6px;background:var(--paper);color:var(--ink);border:1px solid var(--line)}
 .ai-panel button:disabled{opacity:.35}.ai-panel details{margin:12px 0}.ai-panel summary{cursor:pointer;font-size:15px;padding:8px 0}
 #panel.ai-chat{height:min(calc(var(--ai-height,100dvh) * .88),850px)}#panel.ai-chat #panel-body{display:flex;flex:1;min-height:0;flex-direction:column;overflow:hidden;padding:12px 18px 14px}
 .ai-quote{flex-shrink:0;font-size:18px;line-height:1.6;max-height:100px;overflow:auto;margin:0;padding:4px 10px;border-left:3px solid var(--line)}
