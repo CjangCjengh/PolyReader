@@ -11,9 +11,9 @@ export class VisualSelection {
   if(!selected.length)return null;
   value.select(selected[0],selected.at(-1)+1);return value;
  }
- constructor(doc){
+ constructor(doc,{root=doc.body,viewport=true}={}){
   this.doc=doc;
-  const win=doc.defaultView,w=win.innerWidth,h=win.innerHeight,walker=doc.createTreeWalker(doc.body,4),glyphs=[];
+  const win=doc.defaultView,w=viewport?win.innerWidth:Infinity,h=viewport?win.innerHeight:Infinity,walker=doc.createTreeWalker(root,4),glyphs=[];
   const segmenter=win.Intl?.Segmenter?new win.Intl.Segmenter(undefined,{granularity:'grapheme'}):null;
   let node;
   while(node=walker.nextNode()){

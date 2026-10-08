@@ -21,13 +21,14 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.zip.*;
 
-/** Offline host: all book bytes stay in private storage; only SAF grants are used. */
+/** Local library host with an optional, explicitly configured reading assistant. */
 public final class MainActivity extends Activity {
     private static final String ORIGIN = "https://appassets.androidplatform.net";
     private static final int IMPORT_BOOK = 10, IMPORT_FONT = 11, EXPORT_NOTES = 12;
     private WebView web;
     private android.widget.FrameLayout root;
     private BookWalkerReader nativeReader;
+    private AiService assistant;
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private final Handler ui = new Handler(Looper.getMainLooper());
     private File books, fonts;
@@ -42,6 +43,7 @@ public final class MainActivity extends Activity {
         super.onCreate(saved);
         books = new File(getFilesDir(), "books"); books.mkdirs();
         fonts = new File(getFilesDir(), "fonts"); fonts.mkdirs();
+        assistant=new AiService(this,value->event("assistant",value));
         web = new WebView(this) {
             private boolean usesReaderActions() {
                 HitTestResult hit=getHitTestResult();
@@ -356,6 +358,7 @@ public final class MainActivity extends Activity {
             if(raw==null || raw.length()>4*1024*1024) return;
             try {
                 JSONObject o=new JSONObject(raw); String action=o.getString("action");
+                if(action.startsWith("ai")){assistant.handle(o);return;}
                 if(action.equals("save")) { String state=o.getJSONObject("state").toString(); io.execute(() -> { try { write("state.json",state); } catch(Exception e){fail(e);} }); return; }
                 ui.post(() -> { try { perform(action,o); } catch(Exception e){fail(e);} });
             } catch(Exception e){ fail(e); }
@@ -425,5 +428,5 @@ public final class MainActivity extends Activity {
     @Override public void onBackPressed(){if(ready)web.evaluateJavascript("window.onNativeBack()",null);else super.onBackPressed();}
     @Override public boolean onKeyDown(int code,KeyEvent event){if(volumePaging && (code==KeyEvent.KEYCODE_VOLUME_DOWN || code==KeyEvent.KEYCODE_VOLUME_UP)){web.evaluateJavascript("window.nativeTurn("+(code==KeyEvent.KEYCODE_VOLUME_DOWN?1:-1)+")",null);return true;}return super.onKeyDown(code,event);}
     @Override protected void onPause(){super.onPause();if(ready)web.evaluateJavascript("window.clearReaderSelection?.();window.flushState?.()",null);}
-    @Override protected void onDestroy(){if(nativeReader!=null)nativeReader.close();io.shutdown();if(web!=null)web.destroy();super.onDestroy();}
+    @Override protected void onDestroy(){ready=false;if(assistant!=null)assistant.close();if(nativeReader!=null)nativeReader.close();io.shutdown();if(web!=null)web.destroy();super.onDestroy();}
 }

@@ -10,7 +10,7 @@ if os.environ.get('ANDROID_SERIAL'):
     local_strings.add(os.environ['ANDROID_SERIAL'])
 needles = {value.encode(encoding).lower() for value in local_strings
            for encoding in ('utf-8', 'utf-16le')}
-secret = re.compile(rb'(?:gh[pousr]' + rb'_[A-Za-z0-9]{30,}|github_pat_' + rb'[A-Za-z0-9_]{50,})')
+secret = re.compile(rb'(?:gh[pousr]' + rb'_[A-Za-z0-9]{30,}|github_pat_' + rb'[A-Za-z0-9_]{50,}|sk' + rb'-[A-Za-z0-9._/+=-]{24,})')
 issues = []
 
 def inspect(name, data, depth=0):

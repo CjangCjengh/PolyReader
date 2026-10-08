@@ -2,6 +2,7 @@ import {profiles,themeOptions,palette,isDarkTheme,layoutPrefs,migrateState,highl
 import {loadBook,engineRegistry,cfiFor} from './engines.js';
 import {selectionPopup} from './selection.js';
 import {TextSelection} from './text-selection.js';
+import {Assistant} from './assistant.js';
 
 const $=id=>document.getElementById(id);
 const node=(tag,text,cls)=>{const e=document.createElement(tag);if(text!=null)e.textContent=text;if(cls)e.className=cls;return e;};
@@ -9,6 +10,7 @@ const send=(action,data={})=>window.Native?.post(JSON.stringify({action,...data}
 let state,library=[],book,active,profile,engine,selection,loading=false,searchToken=0,fontForProfile=null;
 let toastTimer,saveTimer,settingsTimer,settingsView='reading';
 let handleDrag,selectionDragging=false,pendingOpen;
+let assistant;
 const blend=(a,b,t)=>'#'+[1,3,5].map(i=>Math.round(parseInt(a.slice(i,i+2),16)*(1-t)+parseInt(b.slice(i,i+2),16)*t).toString(16).padStart(2,'0')).join('');
 const prefs=()=>state.profiles[profile.id];
 const bookState=()=>state.books[active.id]??=( {notes:[],locations:{}} );
@@ -24,8 +26,8 @@ function openRequestedBook(){
  openBook(item,mode.id);
 }
 function setChrome(visible){if(visible)clearSelection();document.body.classList.toggle('chrome-hidden',!visible);if(active){applyWindow();syncNativeUI();}}
-function showPanel(title){clearSelection();if(active)setChrome(false);$('panel-title').textContent=title;$('panel-body').replaceChildren();$('scrim').hidden=false;$('panel').hidden=false;return $('panel-body');}
-function closePanel(){searchToken++;$('panel').hidden=true;$('scrim').hidden=true;}
+function showPanel(title){assistant?.dismiss();clearSelection();if(active)setChrome(false);$('panel-title').textContent=title;$('panel-body').replaceChildren();$('scrim').hidden=false;$('panel').hidden=false;return $('panel-body');}
+function closePanel(){assistant?.dismiss();searchToken++;$('panel').hidden=true;$('scrim').hidden=true;}
 function actionButton(parent,title,callback,cls='panel-action'){const b=node('button',title,cls);b.onclick=callback;parent.append(b);return b;}
 function caption(item){const title=(item.title||'').trim();return title&&!/^[\s\p{Pd}\u2212]+$/u.test(title)?title:(item.filename||'').replace(/\.+(?:epub|txt)$/i,'').trim()||'未命名书籍';}
 function renderLibrary(){
@@ -92,7 +94,7 @@ function home(){
  if(loading)return;clearTimeout(settingsTimer);clearSelection();flush();engine?.destroy();engine=null;book?.destroy?.();book=null;active=null;closePanel();$('reading').hidden=true;$('shelf').hidden=false;document.body.classList.remove('chrome-hidden');send('window',{reader:false,volume:false,awake:false,fullscreen:false,brightness:-1,orientation:0,dark:false});
  for(const k of ['--card','--ink','--paper','--line'])document.documentElement.style.removeProperty(k);renderLibrary();
 }
-async function turn(dir){if(engine&&!loading)try{clearSelection();await engine.turn(dir);}catch(e){error(e)}}
+async function turn(dir){if(engine&&!loading&&$('panel').hidden)try{clearSelection();await engine.turn(dir);}catch(e){error(e)}}
 function clearSelection(clearNative=true){
  const previous=selection;selection=null;handleDrag=null;selectionDragging=false;$('selection-bar').hidden=true;
  $('selection-start').hidden=$('selection-end').hidden=true;
@@ -212,10 +214,11 @@ async function runSearch(query,status,list){
    if(count>=150)break;await new Promise(r=>setTimeout(r,0));
  }if(token===searchToken)status.textContent=count?`${count}${count===150?'（已达显示上限）':''} 个结果`:'没有找到匹配文字';}catch(e){status.textContent='搜索失败：'+e.message;}
 }
-function more(){const p=showPanel('更多');actionButton(p,'选择阅读器',()=>chooseMode(active));actionButton(p,'跳回书首',()=>{closePanel();engine.go(0).catch(error)});actionButton(p,'关于 PolyReader',about);}
-function about(){const p=showPanel('关于 PolyReader');p.append(node('h3','PolyReader'),node('div','0.4.16','about-version'),node('p','本地 EPUB / TXT 阅读器'),node('p','阅读器：BOOK☆WALKER、RIDI、RIDI Thai。每个阅读器独立保存字号、主题和操作设置。'));actionButton(p,'组件与许可',async()=>{const q=showPanel('组件与许可');q.append(node('p','BOOK☆WALKER 7.9.2：PUBLUS/MARS 排版内核，字体为リュウミン和ゴシックMB101。相关组件保留原版权。'),node('p','RIDI Reader.js 1.0.61、Foliate JS：MIT；RIDIBatang：SIL OFL 1.1；Garuda：GPL 2.0 或更新版本（含字体嵌入例外）。'));for(const f of ['vendor/ridi/LICENSE','vendor/foliate/LICENSE','fonts/RIDIBatang-LICENSE.txt','fonts/Garuda-LICENSE.txt']){const t=await(await fetch(f)).text();const pre=node('pre',t);pre.style.cssText='white-space:pre-wrap;font:11px/1.6 monospace';q.append(pre)}q.append(node('p','zip.js：BSD-3-Clause；fflate：MIT。相关版权声明保留在对应源文件中。'));});}
+function more(){const p=showPanel('更多');if(assistant?.session?.bookId===active.id)actionButton(p,assistant.t('assistant'),()=>assistant.chatPanel(book));actionButton(p,'选择阅读器',()=>chooseMode(active));actionButton(p,'跳回书首',()=>{closePanel();engine.go(0).catch(error)});actionButton(p,'关于 PolyReader',about);}
+function about(){const p=showPanel('关于 PolyReader');p.append(node('h3','PolyReader'),node('div','0.5.0','about-version'),node('p','本地 EPUB / TXT 阅读器'),node('p','阅读器：BOOK☆WALKER、RIDI、RIDI Thai。每个阅读器独立保存字号、主题和操作设置。'));actionButton(p,'组件与许可',async()=>{const q=showPanel('组件与许可');q.append(node('p','BOOK☆WALKER 7.9.2：PUBLUS/MARS 排版内核，字体为リュウミン和ゴシックMB101。相关组件保留原版权。'),node('p','RIDI Reader.js 1.0.61、Foliate JS：MIT；RIDIBatang：SIL OFL 1.1；Garuda：GPL 2.0 或更新版本（含字体嵌入例外）。'));for(const f of ['vendor/ridi/LICENSE','vendor/foliate/LICENSE','fonts/RIDIBatang-LICENSE.txt','fonts/Garuda-LICENSE.txt']){const t=await(await fetch(f)).text();const pre=node('pre',t);pre.style.cssText='white-space:pre-wrap;font:11px/1.6 monospace';q.append(pre)}q.append(node('p','zip.js：BSD-3-Clause；fflate：MIT。相关版权声明保留在对应源文件中。'));});}
 
 window.receiveNative=(type,value)=>{
+ if(type==='assistant'){assistant?.receive(value);return;}
  if(type==='bookwalker'){
    if(engine?.token!==value.token)return;
    engine.receive(value).catch(error);
@@ -240,7 +243,10 @@ window.receiveNative=(type,value)=>{
 };
 const bootstrap=window.Native?JSON.parse(window.Native.init()):{state:{},library:[],webview:'browser'};
 state=migrateState(bootstrap.state||{});library=bootstrap.library||[];save();
-$('import-button').onclick=()=>send('import');$('about-button').onclick=about;$('filter').oninput=renderLibrary;$('home').onclick=home;$('panel-close').onclick=closePanel;$('scrim').onclick=closePanel;
+assistant=new Assistant({state,send,save,showPanel,closePanel,toast,navigate:(id,cfi)=>{if(active?.id===id){closePanel();engine.go(cfi).catch(error);}}});
+$('selection-explain').textContent=assistant.t('explain');
+$('selection-explain').onclick=()=>{if(selection)assistant.explain(book,{...selection},{...active,title:caption(active)})};
+$('import-button').onclick=()=>send('import');$('about-button').onclick=()=>{const p=showPanel(assistant.t('appSettings'));actionButton(p,assistant.t('assistant'),()=>assistant.settingsPanel());actionButton(p,assistant.t('about'),about);};$('filter').oninput=renderLibrary;$('home').onclick=home;$('panel-close').onclick=closePanel;$('scrim').onclick=closePanel;
 $('toc-button').onclick=toc;$('search-button').onclick=searchPanel;$('settings-button').onclick=()=>settings();$('style-button').onclick=()=>settings('style');$('notes-button').onclick=notes;$('add-bookmark').onclick=addBookmark;$('reader-more').onclick=more;
 $('jump-back').onclick=()=>engine.back?.().catch(error);$('progress').onchange=()=>engine.fraction(+$('progress').value/1000).catch(error);
 $('selection-bar').addEventListener('pointerdown',e=>e.preventDefault());
@@ -268,7 +274,7 @@ window.nativeTurn=turn;window.flushState=flush;window.clearReaderSelection=clear
 document.addEventListener('visibilitychange',()=>{if(document.hidden){clearSelection();flush()}});
 document.addEventListener('keydown',e=>{if(e.target.matches('input,textarea,select'))return;if(e.key==='Escape')window.onNativeBack();if(active&&e.key==='ArrowRight')turn(prefs().writing==='vertical'?-1:1);if(active&&e.key==='ArrowLeft')turn(prefs().writing==='vertical'?1:-1);});
 // Debug builds expose diagnostics through WebView's standard remote debugging interface.
-window.polyReader={get engine(){return engine},get book(){return book},get active(){return active},get profile(){return profile},get state(){return state},get library(){return library},openBook,home,turn,setChrome};
+window.polyReader={get engine(){return engine},get book(){return book},get active(){return active},get profile(){return profile},get state(){return state},get library(){return library},get assistant(){return assistant},openBook,home,turn,setChrome};
 renderLibrary();
 
 function syncNativeUI(){if(profile?.engine==='bookwalker'&&engine){send('bwUi',{modal:!$('panel').hidden||!$('loading').hidden,selectionRect:$('selection-bar').hidden?null:(r=>[r.left,r.top,r.right,r.bottom].map(x=>x*devicePixelRatio))($('selection-bar').getBoundingClientRect()),chrome:!document.body.classList.contains('chrome-hidden'),chromeRects:document.body.classList.contains('chrome-hidden')?[]:['reader-top','reader-bottom','add-bookmark'].map(id=>(r=>[r.left,r.top,r.right,r.bottom].map(x=>x*devicePixelRatio))($(id).getBoundingClientRect()))});}}
