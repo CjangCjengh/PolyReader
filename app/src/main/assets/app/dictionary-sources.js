@@ -42,6 +42,60 @@ function jsonPath(object,path){
  return values.filter(v=>typeof v==='string'||typeof v==='number').map(String);
 }
 const entry=(title,text,url,extra={})=>({title,text:text.slice(0,5000),truncated:text.length>5000,url,...extra});
+const uniqueText=values=>[...new Set(values.map(plain).filter(Boolean))];
+function parseNaver(body){
+ const result=JSON.parse(body)?.searchResultMap?.searchResultListMap?.WORD;
+ if(!result||!Array.isArray(result.items))throw Error('invalid_response');
+ return result.items.filter(v=>(v.matchType||'').startsWith('exact')).slice(0,3).map(v=>{
+  const title=plain(v.expEntry),lines=[title+(v.expEntrySuperscript?' ('+plain(v.expEntrySuperscript)+')':'')];
+  const add=(label,values)=>{const text=uniqueText(values).join('; ');if(text)lines.push(label+': '+text);};
+  // Original spellings belong to each homograph, not to the search query as a whole.
+  add('Original script',[...(v.expAliasGeneralAlwaysList||[]).map(a=>a.originLanguageValue),v.expKanji,v.expKoreanHanja]);
+  add('Pronunciation',[...(v.searchPhoneticSymbolList||[]).map(a=>a.symbolValue),v.expKoreanPron]);
+  for(const group of v.meansCollector||[]){
+   add('Part of speech',[group.partOfSpeech]);
+   for(const meaning of group.means||[]){
+    const labels=uniqueText([meaning.subjectGroup,meaning.languageGroup]);
+    lines.push((meaning.order?plain(meaning.order)+'. ':'')+(labels.length?'['+labels.join(', ')+'] ':'')+plain(meaning.value));
+    add('Example',[meaning.exampleOri,meaning.exampleTrans]);
+   }
+  }
+  add('Inflections',(v.expAliasEntrySearchList||[]).map(a=>a.conjValue));
+  add('Subentries',(v.expAliasEntryAlwaysList||[]).map(a=>a.subEntryValue));
+  add('Synonyms',(v.similarWordList||[]).map(a=>a.similarWordName));
+  add('Antonyms',(v.antonymWordList||[]).map(a=>a.antonymWordName));
+  return entry(title,lines.filter(Boolean).join('\n'),'https://ko.dict.naver.com/#/entry/koko/'+encodeURIComponent(v.entryId),{publisher:plain(v.sourceDictnameKO),coverage:'search_summary'});
+ });
+}
+function wikiExcerpt(fragment,limit=3500){
+ // Keep lexical sections together, including the etymology that owns each sense.
+ const sections=[],path=[];let current=null,skipLevel=0;
+ for(const node of fragment.children){
+  const heading=node.matches('h3,h4,h5,h6')?node:node.querySelector(':scope > h3,:scope > h4,:scope > h5,:scope > h6');
+  if(heading){
+   const level=+heading.tagName.slice(1),name=plain(heading);
+   while(path.length&&path.at(-1).level>=level)path.pop();
+   path.push({level,name});current=null;
+   if(skipLevel&&level>skipLevel)continue;
+   skipLevel=/^(Translations|Conjugation|Declension|Inflection|Derived terms|Descendants|Related terms|References|Further reading|See also|Anagrams|Statistics)\b/i.test(name)?level:0;
+   continue;
+  }
+  if(skipLevel)continue;
+  const text=plain(node);if(!text)continue;
+  if(!current){current={heading:path.map(p=>p.name).join(' / '),parts:[]};sections.push(current);}
+  current.parts.push(text);
+ }
+ const values=sections.map(s=>(s.heading?s.heading+'\n':'')+s.parts.join('\n'));
+ const total=values.join('\n\n');if(total.length<=limit)return {text:total,truncated:false};
+ // Share the excerpt budget so an early long section cannot hide later homographs.
+ const sizes=values.map(()=>0);let remaining=Math.max(0,limit-2*(values.length-1));
+ while(remaining>0){
+  const active=values.map((v,i)=>i).filter(i=>sizes[i]<values[i].length);if(!active.length)break;
+  const share=Math.max(1,Math.floor(remaining/active.length));
+  for(const i of active){const take=Math.min(share,values[i].length-sizes[i],remaining);sizes[i]+=take;remaining-=take;}
+ }
+ return {text:values.map((v,i)=>v.length>sizes[i]?v.slice(0,Math.max(0,sizes[i]-1))+'…':v).join('\n\n'),truncated:true};
+}
 function parseWiki(body,query,language){
  const data=JSON.parse(body);if(data.error?.code==='missingtitle')return [];
  if(!data.parse?.text)throw Error('invalid_response');
@@ -49,12 +103,16 @@ function parseWiki(body,query,language){
  if(!heading)return [];
  const fragment=document.createDocumentFragment();let el=heading.parentElement?.classList.contains('mw-heading')?heading.parentElement:heading;
  for(el=el.nextElementSibling;el&&!el.matches('h2,.mw-heading2');el=el.nextElementSibling)fragment.append(el.cloneNode(true));
- fragment.querySelectorAll('.navbox,.toc,.sister-wikipedia,.noprint,.metadata,.quotation,.quote,.audiofile').forEach(n=>n.remove());
+ fragment.querySelectorAll('.navbox,.toc,.sister-wikipedia,.noprint,.metadata,.quotation,.quote,.audiofile,.was-wotd,.etytree,.citation-whole').forEach(n=>n.remove());
  const related=[...fragment.querySelectorAll('.ja-see a[href^="/wiki/"],.form-of-definition-link a[href^="/wiki/"]')]
   .filter(a=>a.hash==='#'+wikiLanguages[language]||a.getAttribute('href').endsWith('#'+wikiLanguages[language]))
   .map(a=>a.textContent.trim()).filter(v=>v&&v!==query&&v.length<=100);
  const url='https://en.wiktionary.org/wiki/'+encodeURIComponent(data.parse.title||query)+'#'+wikiLanguages[language];
- const text=plain(fragment);return text?[entry(data.parse.title||query,text,url,{related:[...new Set(related)].slice(0,5),license:'CC BY-SA'})]:[];
+ // Historical quotations and examples may be much longer than the definitions.
+ // Keep nested numbered senses, but omit their example lists from this excerpt.
+ fragment.querySelectorAll('ol > li > ul,ol > li > dl').forEach(n=>n.remove());
+ const {text,truncated}=wikiExcerpt(fragment);
+ return text?[entry(data.parse.title||query,text,url,{truncated,coverage:'lexical_excerpt',related:[...new Set(related)].slice(0,5),license:'CC BY-SA'})]:[];
 }
 export async function lookupSource(source,query,language,fetcher,signal,timeout){
  const q=encodeURIComponent(query);let request,link;
@@ -75,11 +133,7 @@ export async function lookupSource(source,query,language,fetcher,signal,timeout)
    const root=html(body);entries=[...root.querySelectorAll('.kiji')].slice(0,3).map(n=>entry(plain(n.querySelector('.midashigo'))||query,plain(n),request.url));
    if(!entries.length&&!/一致する見出し語は見つかりません|見つかりませんでした/.test(plain(root)))throw Error('invalid_response');break;
   }
-  case 'naver':{
-   const result=JSON.parse(body)?.searchResultMap?.searchResultListMap?.WORD;if(!result||!Array.isArray(result.items))throw Error('invalid_response');
-   entries=result.items.filter(v=>(v.matchType||'').startsWith('exact')).slice(0,3).map(v=>entry(plain(v.expEntry),[plain(v.expEntry),plain(v.expKanji),plain(v.expKoreanHanja),...(v.meansCollector||[]).flatMap(g=>[plain(g.partOfSpeech),...(g.means||[]).map(m=>plain(m.value))])].filter(Boolean).join('\n'),'https://ko.dict.naver.com/#/entry/koko/'+encodeURIComponent(v.entryId),{publisher:v.sourceDictnameKO}));
-   break;
-  }
+  case 'naver':entries=parseNaver(body);break;
   case 'tudientv':{
    if(!body.trim())break;const root=html(body),head=root.querySelector('#headword');
    if(!head)throw Error('invalid_response');entries=[entry(plain(head),plain(root),'https://tudientv.com/?t='+q)];break;

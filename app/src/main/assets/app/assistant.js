@@ -134,7 +134,7 @@ export class Assistant {
   const form=element('form',null,'ai-compose'),input=element('textarea');input.placeholder=t('followup');input.rows=1;input.maxLength=6000;
   input.addEventListener('input',()=>{input.style.height='48px';input.style.height=Math.min(120,Math.max(48,input.scrollHeight+2))+'px';});
   const send=button(t('send'),()=>form.requestSubmit(),'primary ai-send');this.stopButton=button(t('stop'),()=>this.stop(),'ai-stop');this.stopButton.hidden=!this.current;
-  this.retry=button(t('retry'),()=>{this.session.messages=this.session.messages.filter(m=>!m.incomplete);this.chatPanel();this.answer();});this.retry.hidden=true;
+  this.retry=button(t('retry'),()=>{this.session.messages=this.session.messages.filter(m=>!m.incomplete);this.chatPanel();this.answer();},'ai-retry');this.retry.hidden=true;
   form.append(input,send,this.stopButton,this.retry);form.onsubmit=e=>{e.preventDefault();const text=input.value.trim();if(!text||this.current)return;input.value='';input.style.height='48px';const m={role:'user',content:text};session.messages.push(m);this.messageNode(m);this.answer(text);};p.append(form);
   input.addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();form.requestSubmit();}});
  }
