@@ -175,11 +175,16 @@ const getMetadata = opf => {
     const $metadata = $(opf.documentElement, 'metadata')
 
     // first pass: convert to JS objects
-    const els = Object.groupBy($metadata.children, el =>
+    // PolyReader: some packages wrap their fields in dc-metadata and x-metadata.
+    const children = [...($metadata?.children ?? [])].flatMap(el =>
+        (el.namespaceURI === NS.OPF || !el.namespaceURI)
+            && ['dc-metadata', 'x-metadata'].includes(el.localName)
+            ? [...el.children] : [el])
+    const els = Object.groupBy(children, el =>
         el.namespaceURI === NS.DC ? 'dc'
         : el.namespaceURI === NS.OPF && el.localName === 'meta' ?
             (el.hasAttribute('name') ? 'legacyMeta' : 'meta') : '')
-    const baseLang = $metadata.getAttribute('xml:lang')
+    const baseLang = $metadata?.getAttribute('xml:lang')
         ?? opf.documentElement.getAttribute('xml:lang') ?? 'und'
     const prefixes = getPrefixes(opf)
     const parse = el => {
@@ -203,7 +208,7 @@ const getMetadata = opf => {
         if (!els) return null
         return Object.groupBy(els.map(parse), x => x.property)
     }
-    const dc = Object.fromEntries(Object.entries(Object.groupBy(els.dc, el => el.localName))
+    const dc = Object.fromEntries(Object.entries(Object.groupBy(els.dc ?? [], el => el.localName))
         .map(([name, els]) => [name, els.map(parse)]))
     const properties = getProperties() ?? {}
     const legacyMeta = Object.fromEntries(els.legacyMeta?.map(el =>
