@@ -52,6 +52,8 @@ body[data-reader=bookwalker] #style-button{order:0}body[data-reader=bookwalker] 
 body[data-reader=bookwalker] #progress{direction:rtl;accent-color:#128bd2}body[data-reader=bookwalker] #jump-back{display:none}body[data-reader=bookwalker] #reading-progress{text-align:center;font-size:16px;padding:5px 0 13px}
 body[data-reader=bookwalker].dark-reader .reader-bottom{background:rgba(30,30,30,.94)!important}body[data-reader=bookwalker].dark-reader .reader-bottom nav button{background:#292929;border-color:#555}
 #panel>header h2{font-size:19px}.row label{font-size:16px}.row select{font-size:15px}.row output{font-size:14px}.panel-action{font-size:16px}.section-label{font-size:14px}.item-list button{font-size:16px}#panel-body>p{font-size:15px}
+.toc-list button[aria-current=location]{background:var(--line);color:var(--ink);font-weight:700;border-radius:6px;box-shadow:inset 3px 0 var(--accent)}
+body.dark-reader .toc-list button[aria-current=location]{box-shadow:inset 3px 0 #8abfa9}
 .progress-row input[type=range]{appearance:none;-webkit-appearance:none;background:transparent;border:0;cursor:pointer}
 .progress-row input[type=range]::-webkit-slider-runnable-track{height:3px;border-radius:2px;background:#b6b09c}
 .progress-row input[type=range]::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:18px;height:18px;border:0;border-radius:50%;background:var(--chrome-ink);margin-top:-7.5px}

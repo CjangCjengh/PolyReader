@@ -3,6 +3,7 @@ import {loadBook,engineRegistry,cfiFor} from './engines.js';
 import {selectionPopup} from './selection.js';
 import {TextSelection} from './text-selection.js';
 import {Assistant} from './assistant.js';
+import {tocEntries,currentTocIndex} from './toc.js';
 
 const $=id=>document.getElementById(id);
 const node=(tag,text,cls)=>{const e=document.createElement(tag);if(text!=null)e.textContent=text;if(cls)e.className=cls;return e;};
@@ -158,8 +159,22 @@ function attachContent(doc,index){
  });
  doc.addEventListener('dblclick',e=>{const img=e.target.closest('img,svg');if(!img)return;const p=showPanel('插图');const copy=img.cloneNode(true);copy.style.cssText='width:100%;height:auto;max-height:70vh;object-fit:contain';p.append(copy);});
 }
-function flattenedToc(items,depth=0,out=[]){for(const x of items||[]){out.push({...x,depth});flattenedToc(x.subitems,depth+1,out);}return out;}
-function toc(){const p=showPanel('目录'),list=node('ul',null,'item-list');p.append(list);const items=flattenedToc(book.toc);if(!items.length)book.sections.forEach((s,i)=>items.push({label:`章节 ${i+1}`,href:i,depth:0}));for(const t of items){const li=node('li'),b=node('button',t.label||'未命名章节');b.style.paddingLeft=(5+t.depth*16)+'px';b.onclick=()=>{closePanel();engine.go(t.href).catch(error)};li.append(b);list.append(li);}}
+function toc(){
+ const currentBook=book,location=engine.location||bookState().location,p=showPanel('目录'),list=node('ul',null,'item-list toc-list');
+ p.append(list);p.scrollTop=0;
+ const items=tocEntries(currentBook),buttons=[];
+ for(const t of items){
+  const li=node('li'),b=node('button',t.label||(typeof t.href==='number'?`章节 ${t.href+1}`:'未命名章节'));
+  b.style.paddingLeft=(12+t.depth*16)+'px';b.onclick=()=>{closePanel();engine.go(t.href).catch(error)};
+  li.append(b);list.append(li);buttons.push(b);
+ }
+ currentTocIndex(currentBook,items,location).then(index=>{
+  if(!list.isConnected||$('panel').hidden||book!==currentBook||!buttons[index])return;
+  buttons[index].setAttribute('aria-current','location');
+  const untouched=p.scrollTop===0;
+  requestAnimationFrame(()=>{if(untouched&&list.isConnected&&!$('panel').hidden)buttons[index].scrollIntoView({block:'center',inline:'nearest',behavior:'instant'});});
+ }).catch(console.warn);
+}
 async function showFootnote(href){try{const{index,anchor}=book.resolveHref(href);const doc=await book.sections[index].createDocument();const target=anchor(doc);const p=showPanel('注释');p.append(node('p',target?.textContent||'没有找到注释内容'));actionButton(p,'前往注释所在位置',()=>{closePanel();engine.go(href).catch(error)});}catch(e){error(e)}}
 function settingLabel(p,text){p.append(node('div',text,'section-label'));}
 function selectSetting(parent,key,label,options){const row=node('div',null,'row'),l=node('label',label),s=node('select');s.id='pref-'+key;l.htmlFor=s.id;for(const[v,text]of options){const o=node('option',text);o.value=v;s.append(o);}s.value=prefs()[key];s.onchange=()=>changePref(key,typeof prefs()[key]==='number'?+s.value:s.value);row.append(l,s);parent.append(row);}

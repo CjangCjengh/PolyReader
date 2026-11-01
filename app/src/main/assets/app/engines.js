@@ -228,7 +228,13 @@ export class BookWalkerEngine {
    }catch(e){this.callbacks.error(e);this.resolve?.();this.resolve=null;}
  }
  async settings(prefs){this.prefs=prefs;window.Native.post(JSON.stringify({action:'bwSettings',prefs:this.nativePrefs(prefs)}));}
- async go(target,remember=true){if(typeof target==='number')target=this.book.sections[target].cfi||CFI.fake.fromIndex(target);if(remember&&this.location?.cfi&&target!==this.location.cfi){this.history.push(this.location.cfi);if(this.history.length>64)this.history.shift();}window.Native.post(JSON.stringify({action:'bwGo',target}));}
+ async go(target,remember=true){
+   if(typeof target==='number')target=this.book.sections[target].cfi||CFI.fake.fromIndex(target);
+   if(remember&&this.location?.cfi&&target!==this.location.cfi){this.history.push(this.location.cfi);if(this.history.length>64)this.history.shift();}
+   // The native reader expects a URI, including escaped spaces in EPUB paths.
+   if(!target.startsWith('epubcfi('))target=encodeURI(target).replace(/%25([0-9a-f]{2})/gi,'%$1');
+   window.Native.post(JSON.stringify({action:'bwGo',target}));
+ }
  async back(){const cfi=this.history.pop();if(cfi)await this.go(cfi,false);else this.callbacks.notice('没有可返回的跳转位置');}
  async turn(direction){window.Native.post(JSON.stringify({action:'bwTurn',direction}));}
  async fraction(value){const[index,part]=this.progress.getSection(value);const doc=await this.book.sections[index].createDocument();const walker=doc.createTreeWalker(doc.body,NodeFilter.SHOW_TEXT);let offset=Math.floor(doc.body.textContent.length*part),node;while(node=walker.nextNode()){if(offset<=node.length)break;offset-=node.length;}if(node){const range=doc.createRange();range.setStart(node,offset);range.collapse(true);await this.go(cfiFor(this.book,index,range));}else await this.go(index);}
